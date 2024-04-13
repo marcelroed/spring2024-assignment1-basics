@@ -8,14 +8,19 @@ edition = "2021"
 name = "rustsrc"
 crate-type = ["cdylib"]
 
+
+[patch.crates-io]
+onig_sys = { git = "https://github.com/rust-onig/rust-onig", revision = "fa90c0e97e90a056af89f183b23cd417b59ee6a2" }
+
 [dependencies]
 dashmap = {version = "5.5.3", features = ["rayon"]}
-fancy-regex = "0.13.0"
+# fancy-regex = "0.13.0"
 indicatif = "0.17.8"
 itertools = "0.12.1"
 onig = "6.4.0"
-pcre2 = "0.2.7"
+# pcre2 = "0.2.7"
 priority-queue = "2.0.2"
 pyo3 = {version = "0.21.1", features = ["extension-module"]}
 rayon = "1.10.0"
 regex = "1.10.4"
+

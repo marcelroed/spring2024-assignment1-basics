@@ -1,5 +1,5 @@
 use priority_queue::PriorityQueue;
-use std::{collections::{HashMap, HashSet}, hint::black_box, sync::{atomic::AtomicU64, Mutex, RwLock}};
+use std::{collections::{HashMap, HashSet}, hint::black_box, sync::{atomic::{AtomicIsize, AtomicU64}, Mutex, RwLock}};
 use itertools::Itertools;
 use rayon::prelude::*;
 use indicatif::ProgressBar;
@@ -34,7 +34,7 @@ pub fn count_words(words: &[&str]) -> Vec<Word> {
         acc
     });
 
-    all_counts.into_iter().map(|(word, count)| {
+    all_counts.par_iter().map(|(&word, &count)| {
         Word {
             symbols: word.as_bytes().into_iter().map(|e| *e as u32).collect(),
             word_count: count,
@@ -42,25 +42,21 @@ pub fn count_words(words: &[&str]) -> Vec<Word> {
     }).collect()
 }
 
-fn count_pairs(words: &[Word]) -> (HashMap<Pair, isize>, HashMap<Pair, HashSet<u32>>) {
+fn count_pairs(words: &[Word]) -> HashMap<Pair, isize> {
     let mut symbol_counts: HashMap<Pair, isize> = HashMap::new();
-    let mut affects_word: HashMap<Pair, HashSet<u32>> = HashMap::new();
     for (word_i, word) in words.iter().enumerate() {
         for i in 0..word.symbols.len() - 1 {
             let pair = (word.symbols[i], word.symbols[i + 1]);
             let count = symbol_counts.entry(pair).or_insert(0);
             *count += word.word_count;
-
-            affects_word.entry(pair).or_insert(HashSet::new()).insert(word_i as u32);
         }
     }
-    (symbol_counts, affects_word)
+    symbol_counts
 }
 
-fn update_word(w: &mut Word, pair: Pair, new_symbol: u32) -> (Vec<(Pair, isize)>, Vec<Pair>, Vec<Pair>) {
+fn update_word(w: &mut Word, pair: Pair, new_symbol: u32) -> Vec<(Pair, isize)> {
     let mut i = 0;
     let mut count_changes = vec![];
-    let old_affects_this_word = w.symbols.iter().tuple_windows().map(|(a, b)| (*a, *b)).collect::<HashSet<Pair>>();
     while i < w.symbols.len() - 1 {
         if w.symbols[i] == pair.0 && w.symbols[i + 1] == pair.1 {
             // Perform the merge
@@ -78,41 +74,34 @@ fn update_word(w: &mut Word, pair: Pair, new_symbol: u32) -> (Vec<(Pair, isize)>
         }
         i += 1;
     }
-    let new_affects_this_word = w.symbols.iter().tuple_windows().map(|(a, b)| (*a, *b)).collect::<HashSet<Pair>>();
-    let added_affects = new_affects_this_word.difference(&old_affects_this_word).copied().collect::<Vec<Pair>>();
-    let removed_affects = old_affects_this_word.difference(&new_affects_this_word).copied().collect::<Vec<Pair>>();
-    (count_changes, added_affects, removed_affects)
+    count_changes
 }
 
-fn update_words(words: &mut [Word], affects_word: RwLock<HashMap<Pair, Mutex<HashSet<u32>>>>, pair: Pair, new_symbol: u32) -> Vec<(Pair, isize)> {
-    let count_changes: RwLock<HashMap<(u32, u32), AtomicU64>> = RwLock::new(HashMap::new());
-    let affects_word_l = RwLock::new(affects_word);
+fn update_words(words: &mut [Word], pair: Pair, new_symbol: u32) -> DashMap<(u32, u32), AtomicIsize> {
+    let count_changes: DashMap<(u32, u32), AtomicIsize> = DashMap::new();
 
-    // let mut affects_changes = HashMap::new();
+    // let n_threads = rayon::current_num_threads();
+    // let chunk_size = std::cmp::min(words.len().div_ceil(n_threads), 5_000);
 
-    let affected_words: Vec<u32> = affects_word.read().unwrap().get(&pair).unwrap().lock().unwrap().iter().copied().collect::<Vec<_>>();
-    let chunks = words.chunks_mut(1).enumerate().filter(|(i, chunk)| affected_words.contains(&(*i as u32)));
-    let affected_word_refs: Vec<(&mut Word, u32)> = chunks.map(|(word_i, wordrefs)| (&mut wordrefs[0], word_i as u32)).collect();
-    let changes: Vec<_> = affected_word_refs.into_par_iter().map(|(word, word_i)| {
-        // let word = &mut words[word_i as usize];
-        let (count_changes_word, added_affects, removed_affects) = update_word(word, pair, new_symbol);
-
-        for affect in added_affects {
-            black_box(dummy)
+    words.par_chunks_mut(words.len().div_ceil(8)).for_each(|chunk| {
+        for word in chunk {
+            let count_changes_word = update_word(word, pair, new_symbol);
+            if !count_changes_word.is_empty(){
+                // Check if key exists
+                for (pair, change) in count_changes_word {
+                    if count_changes.contains_key(&pair) {
+                        count_changes.get(&pair).unwrap().fetch_add(change as isize, std::sync::atomic::Ordering::Relaxed);
+                    } else {
+                        count_changes.insert(pair, (change as isize).into());
+                    }
+                }
+            }
         }
+    });
 
-        // (word_i, added_affects, removed_affects, count_changes_word)
-    }).collect();
-        // for (word_i, added_affects, removed_affects, count_changes_word) in changes {
-        //     for affect in added_affects {
-        //         affects_word.entry(affect).or_insert(HashSet::new()).insert(word_i);
-        //     }
-        //     for affect in removed_affects {
-        //         affects_word.entry(affect).or_insert(HashSet::new()).remove(&word_i);
-        //     }
-        //     count_changes.extend(count_changes_word);
-        // }
-
+    // count_changes.into_iter()
+    //     .map(|(pair, change)| (pair, change.into_inner()))
+    //     .collect()
     count_changes
 }
 
@@ -128,7 +117,7 @@ pub fn train_bpe(mut words: Vec<Word>, vocab_size: usize, special_tokens: Vec<St
     // let words = vec![("low", 5), ("lower", 2), ("widest", 3), ("newest", 6)];
     // let mut words: Vec<Word> = words.into_iter().map(|(word, count)| Word { symbols: word.bytes().map(|x| x as u32).collect(), word_count: count }).collect();
 
-    let (symbol_counts, mut affects_word) = count_pairs(&words);
+    let symbol_counts = count_pairs(&words);
 
     // Symbols 0 through 255 are unicode characters
     let mut symbols: Vec<Vec<u8>> = (0..=255).map(|x| vec![x]).collect();
@@ -179,14 +168,15 @@ pub fn train_bpe(mut words: Vec<Word>, vocab_size: usize, special_tokens: Vec<St
 
         symbols.push(new_symbol);
 
-        let (count_changes_vec, affects_word) = update_words(&mut words, affects_word, pair, symbols.len() as u32 - 1);
+        let count_changes = update_words(&mut words, pair, symbols.len() as u32 - 1);
         // Group by the changed pair
-        let mut count_changes: HashMap<Pair, isize> = HashMap::new();
-        for (pair, change) in count_changes_vec {
-            *count_changes.entry(pair).or_insert(0) += change as isize;
-        }
+        // let mut count_changes: HashMap<Pair, isize> = HashMap::new();
+        // for (pair, change) in count_changes_vec {
+        //     *count_changes.entry(pair).or_insert(0) += change as isize;
+        // }
 
-        for (pair, change) in count_changes {
+        for (pair, change) in count_changes.into_iter() {
+            let change: isize = change.load(std::sync::atomic::Ordering::Relaxed);
             let found_item = pq.change_priority_by(&pair, |p| *p += change);
             if !found_item {
                 pq.push(pair, change);

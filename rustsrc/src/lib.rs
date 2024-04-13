@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::ops::Range;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyDict, PyList, PyListMethods, PyString, PyBytes};
+use pyo3::types::{IntoPyDict, PyDict, PyList, PyListMethods, PyString, PyBytes, PyStringData};
 use itertools::Itertools;
 use onig::Regex;
 use rayon::prelude::*;
@@ -15,10 +15,25 @@ use crate::utils::parallel_concat;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
-fn train_bpe<'py>(py: Python<'py>, in_string: &str, vocab_size: usize, special_tokens: Vec<String>) -> PyResult<(Bound<'py, PyDict>, Vec<(Bound<'py, PyBytes>, Bound<'py, PyBytes>)>)> {
+fn train_bpe<'py>(py: Python<'py>, in_string: Bound<'py, PyBytes>, vocab_size: usize, special_tokens: Vec<String>) -> PyResult<(Bound<'py, PyDict>, Vec<(Bound<'py, PyBytes>, Bound<'py, PyBytes>)>)> {
     let n_threads = rayon::current_num_threads();
     println!("Started function");
 
+    // let in_string = unsafe {
+    //     match in_string.slice? {
+    //         PyStringData::Ucs1(d) => {println!("UCS1"); Cow::Borrowed(std::str::from_utf8_unchecked(d))},
+    //         PyStringData::Ucs4(d) => {
+    //             println!("UCS4!");
+    //             let ptr = d.as_ptr();
+    //             let len = d.len();
+    //             let slice = &*std::ptr::slice_from_raw_parts(ptr as *const u8, len * 4);
+    //             Cow::Borrowed(std::str::from_utf8_unchecked(slice))
+    //         },
+    //         PyStringData::Ucs2(_d) => {println!("UCS2"); Cow::Owned(in_string.to_string())}
+    //     }
+    // };
+    // let in_string = in_string.to_string();
+    let in_string = unsafe{std::str::from_utf8_unchecked(in_string.as_bytes())};
 
     println!("Starting regex");
     // let words: Vec<&str> = Regex::new(r"'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+").unwrap().find_iter(in_string).map(|m| m.unwrap().as_str()).collect();
@@ -45,9 +60,9 @@ fn train_bpe<'py>(py: Python<'py>, in_string: &str, vocab_size: usize, special_t
 
     let chunk_ranges: Vec<Range<usize>> = boundaries.into_iter().sorted().tuple_windows().map(|(start, end)| start..end).collect();
 
-    println!("chunk range length {:?}", chunk_ranges.len());
-    println!("chunk ranges {:?}", chunk_ranges);
-    println!("widths: {:?}", chunk_ranges.iter().map(|r| r.end - r.start).collect::<Vec<usize>>());
+    // println!("chunk range length {:?}", chunk_ranges.len());
+    // println!("chunk ranges {:?}", chunk_ranges);
+    // println!("widths: {:?}", chunk_ranges.iter().map(|r| r.end - r.start).collect::<Vec<usize>>());
 
     let re = Regex::new(r"'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+").unwrap();
 
