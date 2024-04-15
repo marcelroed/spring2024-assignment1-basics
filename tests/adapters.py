@@ -8,6 +8,7 @@ import numpy.typing as npt
 import torch
 
 from cs336_basics.bpe import Tokenizer
+from cs336_basics.transformer import MHASelfAttention, PositionwiseFeedForward, RMSNorm, TransformerBlock, gelu, sdpa, softmax, Transformer
 
 
 def run_positionwise_feedforward(
@@ -45,7 +46,9 @@ def run_positionwise_feedforward(
     # You can also manually assign the weights
     # my_ffn.w1.weight.data = weights["w1.weight"]
     # my_ffn.w2.weight.data = weights["w2.weight"]
-    raise NotImplementedError
+    ff = PositionwiseFeedForward(d_model, d_ff)
+    ff.set_weights_from_dict(weights)
+    return ff(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -87,7 +90,7 @@ def run_scaled_dot_product_attention(
         with the output of running your scaled dot product attention
         implementation with the provided key, query, and value tensors.
     """
-    raise NotImplementedError
+    return sdpa(Q, K, V, mask, pdrop)
 
 
 def run_multihead_self_attention(
@@ -137,7 +140,9 @@ def run_multihead_self_attention(
         torch.FloatTensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    mha = MHASelfAttention(d_model, num_heads, attn_pdrop)
+    mha.set_weights_from_dict(weights)
+    return mha(in_features)
 
 
 def run_transformer_block(
@@ -209,7 +214,10 @@ def run_transformer_block(
         FloatTensor of shape (batch_size, sequence_length, d_model) with the output of
         running the Transformer block on the input features.
     """
-    raise NotImplementedError
+    print(f"{in_features.shape=}")
+    transformer_block = TransformerBlock(d_model, num_heads, d_ff, attn_pdrop, residual_pdrop)
+    transformer_block.set_weights_from_dict(weights)
+    return transformer_block(in_features)
 
 
 def run_transformer_lm(
@@ -302,7 +310,10 @@ def run_transformer_lm(
         FloatTensor of shape (batch size, sequence_length, vocab_size) with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    print(locals())
+    transformer = Transformer(vocab_size=vocab_size, context_length=context_length, num_layers=num_layers, d_model=d_model, num_heads=num_heads, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop)
+    transformer.set_weights_from_dict(weights)
+    return transformer(in_indices)
 
 
 def run_rmsnorm(
@@ -333,7 +344,10 @@ def run_rmsnorm(
         FloatTensor of with the same shape as `in_features` with the output of running
         layernorm of the `in_features`.
     """
-    raise NotImplementedError
+    
+    rmsnorm = RMSNorm(d_model, eps)
+    rmsnorm.set_weights_from_dict(weights)
+    return rmsnorm(in_features)
 
 
 def run_gelu(in_features: torch.FloatTensor) -> torch.FloatTensor:
@@ -348,7 +362,7 @@ def run_gelu(in_features: torch.FloatTensor) -> torch.FloatTensor:
         FloatTensor of with the same shape as `in_features` with the output of applying
         GELU to each element.
     """
-    raise NotImplementedError
+    return gelu(in_features)
 
 
 def run_get_batch(
@@ -392,7 +406,7 @@ def run_softmax(in_features: torch.FloatTensor, dim: int) -> torch.FloatTensor:
         FloatTensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    return softmax(in_features, dim)
 
 
 def run_cross_entropy(inputs: torch.FloatTensor, targets: torch.LongTensor):
@@ -538,7 +552,7 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    raise NotImplementedError
+    return Tokenizer(vocab=vocab, merges=merges, special_tokens=special_tokens)
 
 
 def run_train_bpe(

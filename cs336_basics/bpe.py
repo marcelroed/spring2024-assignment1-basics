@@ -1,13 +1,14 @@
-from typing import Self
+from typing import Literal, Self, Iterable, Iterator
 from contextlib import contextmanager
 import time
 from pathlib import Path
 from dataclasses import dataclass
 from collections import Counter, defaultdict
 
-from rustsrc import train_bpe
+from rustsrc import train_bpe, RustTokenizer
 
 import regex as re
+import numpy as np
 
 PAT = re.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
 
@@ -24,72 +25,121 @@ def timer(block_name):
 class Tokenizer:
     vocab: dict[int, bytes]
     merges: list[tuple[bytes, bytes]]
+    rust_tokenizer: RustTokenizer | None
 
-    def merge(self):
-        pass
+    def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None = None):
+        self.vocab = vocab
+        self.merges = merges
+        if special_tokens is None:
+            special_tokens = []
+        self.rust_tokenizer = RustTokenizer(vocab, merges, special_tokens)
 
     @classmethod
-    def from_training_text(cls, text: str, vocab_size: int, special_tokens: list[str]) -> Self:
-        # print('Starting regex')
-        # pre_tokenized = re.findall(PAT, text)
-        # print('Finished regex')
-
-        # vocab, merges = train_bpe(pre_tokenized, vocab_size, special_tokens)
+    def from_training_text(cls, text: str, vocab_size: int, special_tokens: list[str] | None = None) -> Self:
         with timer('Training the bpe model'):
             vocab, merges = train_bpe(text, vocab_size, special_tokens)
-        # print('Finished training the bpe model!')
+
+        return cls(vocab, merges, special_tokens)
+    
+    @classmethod
+    def from_files(cls, vocab_filepath: Path | str, merges_filepath: Path | str, special_tokens: list[str] | None = None) -> Self:
+        with open(vocab_filepath, 'rb') as f:
+            vocab = pickle.load(f)
+        with open(merges_filepath, 'rb') as f:
+            merges = pickle.load(f)
+        return cls(vocab=vocab, merges=merges, special_tokens=special_tokens)
+    
+    def encode(self, text: str | bytes) -> list[int]:
+        if isinstance(text, str):
+            text = text.encode('utf-8', errors='replace')
+        return self.rust_tokenizer.encode(text)
+    
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
+        for text in iterable:
+            yield from self.encode(text)
+    
+    def decode(self, tokens: list[int]) -> str:
+        return self.rust_tokenizer.decode(tokens)
+    
+    @classmethod
+    def train_from_file(cls, in_path: Path | str, vocab_size: int, special_tokens: list[str] | None = None) -> Self:
+        with open(in_path, 'rb') as f:
+            text = f.read()
+        return cls.from_training_text(text, vocab_size, special_tokens)
 
 
-        return cls(vocab, merges)
+DATASET_PATHS = {'owt': 'data/owt_train.txt', 'tinystories': 'data/TinyStoriesV2-GPT4-train.txt'}
+DATASET_VALID_PATHS = {'owt': 'data/owt_valid.txt', 'tinystories': 'data/TinyStoriesV2-GPT4-valid.txt'}
 
-        exit()
-
-        special_tokens_ids = {tuple(bytes([i])): i for i, token in enumerate(special_tokens)}
-        tokens_ids = {(i,): i for i in range(256)}
-        tokens_ids.update(special_tokens_ids)
-
-        pre_tokenized = [(special_tokens_ids[token],) if token in special_tokens_ids else tuple(token.encode('utf-8')) for token in pre_tokenized]
-
-        print(pre_tokenized)
-
-
-        counter = Counter(pre_tokenized)
-
-        pair_counts = defaultdict(int)
-
-        for k, v in counter.items():
-            for i in range(len(k) - 1):
-                pair = (k[i], k[i + 1])
-                pair_counts[pair] += v
-            
-        while len(tokens_ids) < vocab_size:
-            best_pair = max(pair_counts, key=pair_counts.get)
-            new_id = len(tokens_ids)
-            tokens_ids[best_pair] = new_id
-
-        print(f'{pair_counts=}')
-        
-        # vocab = {i: bytes([i])  for i in range(256)}
-        # vocab.update({i + 256: token.encode('utf-8') for i, token in enumerate(special_tokens)})
-
-        # return cls({}, [])
-        return None
+def train_on_dataset(dataset_name: Literal['owt', 'tinystories']):
+    assert dataset_name in ['owt', 'tinystories']
+    in_path = Path(DATASET_PATHS[dataset_name])
+    tokenizer = Tokenizer.train_from_file(in_path=in_path,
+                                          vocab_size=10_000 if dataset_name == 'tinystories' else 32_000,
+                                          special_tokens=['<|endoftext|>'])
+    out_path = Path('tokenizers/')
+    with open(out_path / f'{in_path.stem}_vocab.pkl', 'wb') as f:
+        pickle.dump(tokenizer.vocab, f)
+    with open(out_path / f'{in_path.stem}_merges.pkl', 'wb') as f:
+        pickle.dump(tokenizer.merges, f)
+    return tokenizer
 
 
+def load_tokenizer_for_dataset(dataset: Literal['owt', 'tinystories']) -> Tokenizer:
+    dataset_path = Path(DATASET_PATHS[dataset])
+    tokenizer_path = Path('tokenizers/')
+    with open(tokenizer_path / f'{dataset_path.stem}_vocab.pkl', 'rb') as f:
+        vocab = pickle.load(f)
+    with open(tokenizer_path / f'{dataset_path.stem}_merges.pkl', 'rb') as f:
+        merges = pickle.load(f)
+    tokenizer = Tokenizer(vocab, merges)
+    return tokenizer
+
+def sample_and_compress(dataset: Literal['owt', 'tinystories'], with_tokenizer_from: Literal['owt', 'tinystories'] | None = None):
+    if with_tokenizer_from is None:
+        with_tokenizer_from = dataset
+    tokenizer = load_tokenizer_for_dataset(with_tokenizer_from)
+    with open(DATASET_PATHS[dataset], 'r') as f:
+        text = f.read(1_000_000)
+    # Get the fist 10 documents
+    first_10_lines = next(iter(re.finditer(r"([\s\S]*?<\|endoftext\|>){10}", text))).group(0)
+    before_len = len(first_10_lines)
+    tokens = tokenizer.encode(first_10_lines)
+    after_len = len(tokens)
+    compression_ratio = before_len / after_len
+    print(f'Compression ratio for {dataset}: {compression_ratio}')
+
+def tokenizer_throughput(dataset: Literal['owt', 'tinystories']):
+    tokenizer = load_tokenizer_for_dataset(dataset)
+    n_bytes = 2**30
+    with open(DATASET_PATHS[dataset], 'rb') as f:
+        text = f.read(n_bytes)
+    print('Starting encode')
+    start = time.time()
+    tokens = tokenizer.encode(text)
+    end = time.time()
+    print(f'Encoded {n_bytes} bytes in {end - start} seconds')
+    print(f'Throughput: {(n_bytes / 1e9) / (end - start)} GB/s')
+
+def tokenize_full_dataset(dataset: Literal['owt', 'tinystories']):
+    tokenizer = load_tokenizer_for_dataset(dataset)
+    with open(DATASET_PATHS[dataset], 'rb') as f:
+        text = f.read()
+    tokens = tokenizer.encode(text)
+    with open(f'data/{dataset}_train_tokens.npz', 'wb') as f:
+        np.savez_compressed(f, tokens=tokens)
+    
+    with open(DATASET_VALID_PATHS[dataset], 'rb') as f:
+        text = f.read()
+    tokens = tokenizer.encode(text)
+    with open(f'data/{dataset}_valid_tokens.npz', 'wb') as f:
+        np.savez_compressed(f, tokens=tokens)
 
 if __name__ == '__main__':
-    # print(re.findall(PAT, "some text that i'll pre-tokenize"))
-    in_path = Path('data/TinyStoriesV2-GPT4-train.txt')
-    # in_path = Path('data/owt_train.txt')
-    with open(in_path, 'rb') as f:
-        text = f.read()
-        print('Finished reading')
-        tokenizer = Tokenizer.from_training_text(text, 10_000 if 'TinyStories' in str(in_path) else 32_000, ['<|endoftext|>'])
-        # print([v.decode('utf-8', errors='replace') for v in sorted(tokenizer.vocab.values(), reverse=True, key=len)])
-
-        # print('Finished training')
-        out_path = Path('tokenizers/')
-        out_path.mkdir(exist_ok=True)
-        with open(out_path / f'{in_path.stem}.pkl', 'wb') as f:
-            pickle.dump(tokenizer, f)
-        
+    # train_on_dataset('tinystories')
+    # sample_and_compress('tinystories', 'owt')
+    # sample_and_compress('owt', 'tinystories')
+    # tokenizer_throughput('tinystories')
+    # tokenizer_throughput('owt')
+    tokenize_full_dataset('tinystories')
+    tokenize_full_dataset('owt')
