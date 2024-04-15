@@ -91,10 +91,9 @@ class MHASelfAttention(nn.Module):
                     self.W_qkv.data[qkvi, head] = d[f"{qkvn}_heads.{head}.weight"]
         else:
             for qkvi, qkvn in enumerate('qkv'):
-                for head in range(self.num_heads):
-                    weight = d[f"{qkvn}_proj.weight"]
-                    weight = rearrange(weight, "(heads d) dm -> heads d dm", heads=self.num_heads)
-                    self.W_qkv.data[qkvi, ...] = weight
+                weight = d[f"{qkvn}_proj.weight"]
+                weight = rearrange(weight, "(heads d) dm -> heads d dm", heads=self.num_heads)
+                self.W_qkv.data[qkvi, ...] = weight
         
         self.W_o.weight.data[:] = d["output_proj.weight"]
 
@@ -138,7 +137,7 @@ class Transformer(nn.Module):
     def __init__(self, *, vocab_size: int, context_length: int, num_layers: int, d_model: int, num_heads: int, d_ff: int, attn_pdrop: float | None = None, residual_pdrop: float | None = None):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.blocks = nn.ModuleList([TransformerBlock(d_model=d_model, num_heads=num_heads, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop) for _ in range(num_layers)])
+        self.blocks = nn.Sequential(*[TransformerBlock(d_model=d_model, num_heads=num_heads, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop) for _ in range(num_layers)])
         self.position_embedding = nn.Parameter(torch.zeros(context_length, d_model))
         self.dropout = nn.Dropout(residual_pdrop)
         self.ln_final = RMSNorm(d_model)
@@ -148,17 +147,17 @@ class Transformer(nn.Module):
     def set_weights_from_dict(self, d):
         self.token_embedding.weight.data[:] = d["token_embeddings.weight"]
         self.position_embedding.data[:] = d["position_embeddings.weight"]
-        for i, block in enumerate(self.blocks):
+        for i, block in enumerate(self.blocks.children()):
             block.set_weights_from_dict(dict_subset(d, f"layers.{i}"))
+        assert f'layers.{i + 1}' not in d, "Extra weights in state dict"
         self.ln_final.set_weights_from_dict(dict_subset(d, "ln_final"))
         self.lm_head.weight.data[:] = d["lm_head.weight"]
     
     def forward(self, x):
         x = self.dropout(self.token_embedding(x) + self.position_embedding[None, :x.shape[-1], :])
-        for block in self.blocks:
-            x = block(x)
+        x = self.blocks(x)
         x = self.ln_final(x)
         x = self.lm_head(x)
-        x = softmax(x, dim=-1)
+        # x = softmax(x, dim=-1)
         return x
         

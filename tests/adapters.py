@@ -310,7 +310,7 @@ def run_transformer_lm(
         FloatTensor of shape (batch size, sequence_length, vocab_size) with the predicted unnormalized
         next-word distribution for each token.
     """
-    print(locals())
+    # print(locals())
     transformer = Transformer(vocab_size=vocab_size, context_length=context_length, num_layers=num_layers, d_model=d_model, num_heads=num_heads, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop)
     transformer.set_weights_from_dict(weights)
     return transformer(in_indices)
