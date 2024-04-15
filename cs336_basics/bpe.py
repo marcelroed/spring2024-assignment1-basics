@@ -35,7 +35,11 @@ class Tokenizer:
         self.rust_tokenizer = RustTokenizer(vocab, merges, special_tokens)
 
     @classmethod
-    def from_training_text(cls, text: str, vocab_size: int, special_tokens: list[str] | None = None) -> Self:
+    def from_training_text(cls, text: bytes | str, vocab_size: int, special_tokens: list[str] | None = None) -> Self:
+        if isinstance(text, str):
+            text = text.encode('utf-8', errors='strict')
+        if special_tokens is None:
+            special_tokens = []
         with timer('Training the bpe model'):
             vocab, merges = train_bpe(text, vocab_size, special_tokens)
 
@@ -116,7 +120,7 @@ def tokenizer_throughput(dataset: Literal['owt', 'tinystories']):
         text = f.read(n_bytes)
     print('Starting encode')
     start = time.time()
-    tokens = tokenizer.encode(text)
+    _tokens = tokenizer.encode(text)
     end = time.time()
     print(f'Encoded {n_bytes} bytes in {end - start} seconds')
     print(f'Throughput: {(n_bytes / 1e9) / (end - start)} GB/s')
@@ -135,11 +139,21 @@ def tokenize_full_dataset(dataset: Literal['owt', 'tinystories']):
     with open(f'data/{dataset}_valid_tokens.npz', 'wb') as f:
         np.savez_compressed(f, tokens=tokens)
 
+def test_training():
+    with open('data/bpe_trivial.txt', 'r') as f:
+        text = f.read()
+    tokenizer = Tokenizer.from_training_text(text, 256 + 12)
+    print(tokenizer.vocab)
+    print(tokenizer.merges)
+
+
 if __name__ == '__main__':
-    # train_on_dataset('tinystories')
+    # test_training()
+    train_on_dataset('tinystories')
+    # train_on_dataset('owt')
     # sample_and_compress('tinystories', 'owt')
     # sample_and_compress('owt', 'tinystories')
     # tokenizer_throughput('tinystories')
     # tokenizer_throughput('owt')
-    tokenize_full_dataset('tinystories')
-    tokenize_full_dataset('owt')
+    # tokenize_full_dataset('tinystories')
+    # tokenize_full_dataset('owt')

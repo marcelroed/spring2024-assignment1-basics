@@ -1,6 +1,6 @@
 use onig::Regex;
 use priority_queue::PriorityQueue;
-use std::{collections::{HashMap, HashSet}, ops::Range};
+use std::{collections::{HashMap, HashSet}, ops::Range, sync::atomic::AtomicIsize};
 use itertools::Itertools;
 use rayon::prelude::*;
 use indicatif::ProgressBar;
@@ -23,7 +23,7 @@ pub fn count_words(words: &[&str]) -> Vec<Word> {
     let num_threads = rayon::current_num_threads();
     let chunk_size = num_words.div_ceil(num_threads);
 
-    let all_counts = words.chunks(chunk_size).par_bridge().map(|chunk| {
+    let all_counts = words.par_chunks(chunk_size).map(|chunk| {
         let mut thread_word_counts = HashMap::new();
         for &word in chunk {
             *thread_word_counts.entry(word).or_insert(0) += 1;
@@ -82,9 +82,10 @@ fn update_word(w: &mut Word, pair: Pair, new_symbol: u32) -> Vec<(Pair, isize)> 
 fn update_words(words: &mut [Word], pair: Pair, new_symbol: u32) -> DashMap<(u32, u32), isize> {
     let count_changes: DashMap<(u32, u32), isize> = DashMap::new();
 
-    // let n_threads = rayon::current_num_threads();
+    let n_threads = rayon::current_num_threads();
     // let chunk_size = std::cmp::min(words.len().div_ceil(n_threads), 5_000);
-    let n_threads = 32;
+    // let n_threads = 32;
+    // let n_threads = 1;
 
     words.par_chunks_mut(words.len().div_ceil(n_threads)).for_each(|chunk| {
         for word in chunk {
@@ -92,11 +93,7 @@ fn update_words(words: &mut [Word], pair: Pair, new_symbol: u32) -> DashMap<(u32
             if !count_changes_word.is_empty(){
                 // Check if key exists
                 for (pair, change) in count_changes_word {
-                    if count_changes.contains_key(&pair) {
-                        *count_changes.get_mut(&pair).unwrap() += change;
-                    } else {
-                        count_changes.insert(pair, (change as isize).into());
-                    }
+                    *count_changes.entry(pair).or_insert(0) += change;
                 }
             }
         }
@@ -133,13 +130,19 @@ pub fn train_bpe(in_string: &str, vocab_size: usize, special_tokens: Vec<String>
     }
     boundaries.push(in_string.len());
 
-    let boundaries = boundaries.into_iter().collect::<HashSet<usize>>().into_iter().sorted().collect::<Vec<usize>>();
+    let boundaries = if in_string.len() < 1_000 {
+        vec![0, in_string.len()]
+    } else {
+        boundaries.into_iter().collect::<HashSet<usize>>().into_iter().sorted().collect::<Vec<usize>>()
+    };
 
     let chunk_ranges: Vec<Range<usize>> = boundaries.into_iter().sorted().tuple_windows().map(|(start, end)| start..end).collect();
 
     let re = Regex::new(r"'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+").unwrap();
 
-    println!("Performing regex in parallel");
+    if chunk_ranges.len() > 1 {
+        println!("Performing regex in parallel");
+    }
     let words: Vec<_> = chunk_ranges.into_par_iter().map(|range| {
         let chunk = &in_string[range.clone()];
         let words: Vec<&str> = re.find_iter(chunk).map(|m| &in_string[(&range.start + m.0)..(&range.start + m.1)]).collect();
@@ -149,6 +152,7 @@ pub fn train_bpe(in_string: &str, vocab_size: usize, special_tokens: Vec<String>
     println!("Gathering to a single vector");
 
     let words = parallel_concat(&words);
+    // let words = words.into_iter().flatten().collect::<Vec<&str>>();
 
     println!("Counting the words");
     let mut words = count_words(&words);
@@ -190,7 +194,9 @@ pub fn train_bpe(in_string: &str, vocab_size: usize, special_tokens: Vec<String>
                 }
             }
 
+            // println!("Tied pairs");
             for pair in tied_pairs {
+                // println!("{:?}", assemble_pair(pair));
                 if pair != greatest_pair {
                     pq.push(pair, first_count);
                 }
