@@ -297,7 +297,7 @@ def run_transformer_lm(
                 applied in the transformer block.
                 Shape is (d_model,).
             - `ln_final.weight`
-                Weights of affine transform for layernorm applied to the output of the final transformer block.
+                Weights of affine transform for RMSNorm applied to the output of the final transformer block.
                 Shape is (d_model, ).
             - `lm_head.weight`
                 Weights of the language model output embedding.
@@ -327,7 +327,7 @@ def run_rmsnorm(
 
     Args:
         d_model: int
-            The dimensionality of the layernorm input.
+            The dimensionality of the RMSNorm input.
         eps: float, default is 1e-5
             A value added to the denominator for numerical stability.
         weights: dict[str, torch.FloatTensor]
@@ -342,7 +342,7 @@ def run_rmsnorm(
 
     Returns:
         FloatTensor of with the same shape as `in_features` with the output of running
-        layernorm of the `in_features`.
+        RMSNorm of the `in_features`.
     """
     
     rmsnorm = RMSNorm(d_model, eps)
@@ -534,7 +534,7 @@ def get_tokenizer(
     merges: list[tuple[bytes, bytes]],
     special_tokens: Optional[list[str]] = None,
 ):
-    """Given the path to a JSON vocab, a file with BPE merges, and a list of special tokens,
+    """Given a vocabulary, a list of merges, and a list of special tokens,
     return a BPE tokenizer that uses the provided vocab, merges, and special tokens.
 
     Args:
