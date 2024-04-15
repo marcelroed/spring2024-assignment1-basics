@@ -21,11 +21,9 @@ class RMSNorm(nn.Module):
         self.weight.data[:] = d["weight"]
     
     def forward(self, x):
-        input_dtype = x.dtype
-        x = x.to(torch.float32)
         mean_squared = x.pow(2).mean(dim=-1, keepdim=True)
-        x = x * torch.rsqrt(mean_squared + self.eps)
-        return self.weight * x.to(input_dtype)
+        x = x / torch.sqrt(mean_squared + self.eps)
+        return self.weight * x
     
 
 def gelu(x):
@@ -76,7 +74,7 @@ class MHASelfAttention(nn.Module):
         self.d_k = d_k
         self.d_v = d_v
         self.W_qkv = nn.Parameter(torch.empty(3, num_heads, d_k, d_model, device=device))
-        self.W_o = nn.Linear(num_heads * d_v, d_model, device=device)
+        self.W_o = nn.Linear(num_heads * d_v, d_model, bias=False, device=device)
         self.reset_parameters()
     
     def reset_parameters(self):
@@ -141,7 +139,7 @@ class Transformer(nn.Module):
         self.position_embedding = nn.Parameter(torch.zeros(context_length, d_model))
         self.dropout = nn.Dropout(residual_pdrop)
         self.ln_final = RMSNorm(d_model)
-        self.lm_head = nn.Linear(d_model, vocab_size)
+        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
         print(f"{self=}")
 
     def set_weights_from_dict(self, d):

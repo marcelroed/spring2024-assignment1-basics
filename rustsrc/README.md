@@ -14,4 +14,6 @@ pip install maturin
 maturin develop --release
 ```
 
+Builds have been tested extensively on Linux and MacOS.
+
 I'm responsive (on Slack or otherwise), so reach out if there are any questions.
