@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from math import sqrt
 from einops import einsum, rearrange, pack
 
@@ -31,12 +32,12 @@ def gelu(x):
 
 
 class PositionwiseFeedForward(nn.Module):
-    def __init__(self, d_model, d_ff, dropout=0.1):
+    def __init__(self, d_model, d_ff, dropout=0.1, device=None):
         super().__init__()
-        self.linear1 = nn.Linear(d_model, d_ff, bias=False)
+        self.linear1 = nn.Linear(d_model, d_ff, bias=False, device=device)
         self.activation = gelu
         self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(d_ff, d_model, bias=False)
+        self.linear2 = nn.Linear(d_ff, d_model, bias=False, device=device)
     
     def set_weights_from_dict(self, d):
         self.linear1.weight.data = d["w1.weight"]
@@ -63,7 +64,7 @@ def sdpa(Q, K, V, mask, pdrop):
 
 
 class MHASelfAttention(nn.Module):
-    def __init__(self, d_model: int, num_heads: int, attn_pdrop: float | None = None, device=None):
+    def __init__(self, d_model: int, num_heads: int, attn_pdrop: float | None = None, use_flash: bool = False, device=None):
         super().__init__()
         self.attn_pdrop = attn_pdrop
         self.d_model = d_model
@@ -73,6 +74,7 @@ class MHASelfAttention(nn.Module):
         d_v = d_k  # Not necessarily the case
         self.d_k = d_k
         self.d_v = d_v
+        self.use_flash = use_flash
         self.W_qkv = nn.Parameter(torch.empty(3, num_heads, d_k, d_model, device=device))
         self.W_o = nn.Linear(num_heads * d_v, d_model, bias=False, device=device)
         self.reset_parameters()
@@ -98,11 +100,14 @@ class MHASelfAttention(nn.Module):
     
     def forward(self, x):
         seq_len = x.shape[-2]
-        mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool), diagonal=1)
 
         qkv_heads = einsum(x, self.W_qkv, "... s m, qkv h d m -> ... qkv h s d")
         Q, K, V = qkv_heads[..., 0, :, :, :], qkv_heads[..., 1, :, :, :], qkv_heads[..., 2, :, :, :]
-        attn_output = sdpa(Q, K, V, mask=mask, pdrop=self.attn_pdrop)
+        if self.use_flash:
+            attn_output = F.scaled_dot_product_attention(Q, K, V, dropout_p=self.attn_pdrop, is_causal=True)
+        else:
+            mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool), diagonal=1)
+            attn_output = sdpa(Q, K, V, mask=mask, pdrop=self.attn_pdrop)
         # attn_output: (..., heads, seq_len, dv)
         concatenated = rearrange(attn_output, "... h s d -> ... s (h d)")
         
@@ -111,11 +116,11 @@ class MHASelfAttention(nn.Module):
         return out
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model: int, num_heads: int, d_ff: int, attn_pdrop: float | None = None, residual_pdrop: float | None = None):
+    def __init__(self, d_model: int, num_heads: int, d_ff: int, attn_pdrop: float | None = None, use_flash: bool = False, residual_pdrop: float | None = None, device=None):
         super().__init__()
-        self.attn = MHASelfAttention(d_model, num_heads, attn_pdrop)
+        self.attn = MHASelfAttention(d_model, num_heads, attn_pdrop, use_flash=use_flash, device=device)
         self.ln1 = RMSNorm(d_model)
-        self.ffn = PositionwiseFeedForward(d_model, d_ff)
+        self.ffn = PositionwiseFeedForward(d_model, d_ff, device=device)
         self.ln2 = RMSNorm(d_model)
         self.dropout = nn.Dropout(residual_pdrop)
     

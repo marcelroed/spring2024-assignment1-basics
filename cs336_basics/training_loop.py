@@ -36,7 +36,9 @@ def load_checkpoint(src: str | PathLike | BinaryIO | IO[bytes], model: nn.Module
 
 def train_model():
     import wandb
-    wandb.init(project="cs336", entity="marcelroed")
+    # wandb.init(project="cs336-assignment-1", entity="marcelroed")
+
+
 
 
 if __name__ == '__main__':

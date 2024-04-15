@@ -6,22 +6,30 @@ authors = ["Marcel Rød <marcelroed@gmail.com>"]
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64"]
 
+[system-requirements]
+linux = "5.4.0"
+
 [tasks]
 build = "(cd rustsrc && maturin develop --release)"
-train = { cmd = "python cs336_basics.training_loop.py", depends_on="build" }
+train = { cmd = "PYTHONPATH=. python cs336_basics/training_loop.py", depends_on="build" }
+test = { cmd = "PYTHONPATH=. pytest tests", depends_on="build" }
 
 [build-dependencies]
 rust = "*"
+rust-src = "*"
 
 [dependencies]
 python = "3.11.*"
 pip = "*"
 
 [pypi-dependencies]
-torch = { version = ">=2.2.2" }
+torch = { version = ">=2.2.2<2.3" }
 tiktoken = "*"
 psutil = "*"
 regex = "*"
 numpy = "*"
 maturin = "*"
 pytest = "*"
+patchelf = "*"
+einops = "*"
+wandb = "*"

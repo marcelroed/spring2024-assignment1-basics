@@ -1,6 +1,6 @@
 use onig::Regex;
 use priority_queue::PriorityQueue;
-use std::{collections::{HashMap, HashSet}, ops::Range, sync::atomic::AtomicIsize};
+use std::{collections::{HashMap, HashSet}, ops::Range};
 use itertools::Itertools;
 use rayon::prelude::*;
 use indicatif::ProgressBar;
