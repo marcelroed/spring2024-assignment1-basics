@@ -9,7 +9,7 @@ import torch
 
 from cs336_basics.bpe import Tokenizer
 from cs336_basics.training_loop import load_data, save_checkpoint, load_checkpoint
-from cs336_basics.transformer import MHASelfAttention, PositionwiseFeedForward, RMSNorm, TransformerBlock, gelu, sdpa, softmax, Transformer
+from cs336_basics.transformer import MHSelfAttention, PositionwiseFeedForward, RMSNorm, TransformerBlock, gelu, sdpa, softmax, Transformer
 from cs336_basics.training import cross_entropy_loss, AdamW, cosine_with_warmup_lr_schedule, gradient_clipping
 
 
@@ -142,7 +142,7 @@ def run_multihead_self_attention(
         torch.FloatTensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    mha = MHASelfAttention(d_model, num_heads, attn_pdrop)
+    mha = MHSelfAttention(d_model, num_heads, attn_pdrop)
     mha.set_weights_from_dict(weights)
     return mha(in_features)
 

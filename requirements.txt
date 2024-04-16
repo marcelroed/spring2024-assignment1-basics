@@ -4,3 +4,4 @@ numpy
 maturin
 wandb
 einops
+tqdm
