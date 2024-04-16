@@ -10,7 +10,7 @@ def cross_entropy_loss(logits, targets):
     # logits: (batch_size, num_classes)
     # targets: (batch_size, )
     logits = logits - torch.max(logits, dim=-1).values.unsqueeze(-1)
-    return torch.mean(torch.log(torch.sum(torch.exp(logits), dim=-1, keepdim=True)) - torch.gather(logits, 1, targets.unsqueeze(-1)))
+    return torch.mean(torch.log(torch.sum(torch.exp(logits), dim=-1, keepdim=True)) - torch.gather(logits, -1, targets.unsqueeze(-1)))
     
 
 class SGD(optim.Optimizer):

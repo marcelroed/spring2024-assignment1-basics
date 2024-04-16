@@ -106,7 +106,7 @@ class MHASelfAttention(nn.Module):
         if self.use_flash:
             attn_output = F.scaled_dot_product_attention(Q, K, V, dropout_p=self.attn_pdrop, is_causal=True)
         else:
-            mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool), diagonal=1)
+            mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device), diagonal=1)
             attn_output = sdpa(Q, K, V, mask=mask, pdrop=self.attn_pdrop)
         # attn_output: (..., heads, seq_len, dv)
         concatenated = rearrange(attn_output, "... h s d -> ... s (h d)")
@@ -119,10 +119,10 @@ class TransformerBlock(nn.Module):
     def __init__(self, d_model: int, num_heads: int, d_ff: int, attn_pdrop: float | None = None, use_flash: bool = False, residual_pdrop: float | None = None, device=None):
         super().__init__()
         self.attn = MHASelfAttention(d_model, num_heads, attn_pdrop, use_flash=use_flash, device=device)
-        self.ln1 = RMSNorm(d_model)
+        self.ln1 = RMSNorm(d_model, device=device)
         self.ffn = PositionwiseFeedForward(d_model, d_ff, device=device)
-        self.ln2 = RMSNorm(d_model)
-        self.dropout = nn.Dropout(residual_pdrop)
+        self.ln2 = RMSNorm(d_model, device=device)
+        self.dropout = nn.Dropout(residual_pdrop or 0.0)
     
     def set_weights_from_dict(self, d):
         self.attn.set_weights_from_dict(dict_subset(d, "attn"))
@@ -137,14 +137,14 @@ class TransformerBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, *, vocab_size: int, context_length: int, num_layers: int, d_model: int, num_heads: int, d_ff: int, attn_pdrop: float | None = None, residual_pdrop: float | None = None):
+    def __init__(self, *, vocab_size: int, context_length: int, num_layers: int, d_model: int, num_heads: int, d_ff: int, attn_pdrop: float | None = None, residual_pdrop: float | None = None, device=None, use_flash: bool = False):
         super().__init__()
-        self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.blocks = nn.Sequential(*[TransformerBlock(d_model=d_model, num_heads=num_heads, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop) for _ in range(num_layers)])
-        self.position_embedding = nn.Parameter(torch.zeros(context_length, d_model))
-        self.dropout = nn.Dropout(residual_pdrop)
-        self.ln_final = RMSNorm(d_model)
-        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
+        self.token_embedding = nn.Embedding(vocab_size, d_model, device=device)
+        self.blocks = nn.Sequential(*[TransformerBlock(d_model=d_model, num_heads=num_heads, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop, device=device) for _ in range(num_layers)])
+        self.position_embedding = nn.Parameter(torch.zeros(context_length, d_model, device=device))
+        self.dropout = nn.Dropout(residual_pdrop or 0.0)
+        self.ln_final = RMSNorm(d_model, device=device)
+        self.lm_head = nn.Linear(d_model, vocab_size, bias=False, device=device)
         print(f"{self=}")
 
     def set_weights_from_dict(self, d):
