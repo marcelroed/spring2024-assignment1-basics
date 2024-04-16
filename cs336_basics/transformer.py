@@ -116,13 +116,15 @@ class MHASelfAttention(nn.Module):
         return out
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model: int, num_heads: int, d_ff: int, attn_pdrop: float | None = None, use_flash: bool = False, residual_pdrop: float | None = None, device=None):
+    def __init__(self, d_model: int, num_heads: int, d_ff: int, attn_pdrop: float | None = None, use_flash: bool = False, residual_pdrop: float | None = None, parallel_layers: bool = False, post_norm: bool = False, device=None):
         super().__init__()
         self.attn = MHASelfAttention(d_model, num_heads, attn_pdrop, use_flash=use_flash, device=device)
         self.ln1 = RMSNorm(d_model, device=device)
         self.ffn = PositionwiseFeedForward(d_model, d_ff, device=device)
         self.ln2 = RMSNorm(d_model, device=device)
         self.dropout = nn.Dropout(residual_pdrop or 0.0)
+        self.parallel_layers = parallel_layers
+        self.post_norm = post_norm
     
     def set_weights_from_dict(self, d):
         self.attn.set_weights_from_dict(dict_subset(d, "attn"))
@@ -131,16 +133,22 @@ class TransformerBlock(nn.Module):
         self.ffn.set_weights_from_dict(dict_subset(d, "ffn"))
     
     def forward(self, x):
-        x = x + self.dropout(self.attn(self.ln1(x)))
-        x = x + self.dropout(self.ffn(self.ln2(x)))
+        if self.parallel_layers:
+            x = x + self.dropout(self.attn(self.ln1(x))) + self.dropout(self.ffn(self.ln2(x)))
+        elif self.post_norm:
+            x = self.ln1(x + self.dropout(self.attn(x)))
+            x = self.ln2(x + self.dropout(self.ffn(x)))
+        else:
+            x = x + self.dropout(self.attn(self.ln1(x)))
+            x = x + self.dropout(self.ffn(self.ln2(x)))
         return x
 
 
 class Transformer(nn.Module):
-    def __init__(self, *, vocab_size: int, context_length: int, num_layers: int, d_model: int, num_heads: int, d_ff: int, attn_pdrop: float | None = None, residual_pdrop: float | None = None, device=None, use_flash: bool = False):
+    def __init__(self, *, vocab_size: int, context_length: int, num_layers: int, d_model: int, num_heads: int, d_ff: int, attn_pdrop: float | None = None, residual_pdrop: float | None = None, parallel_layers: bool = False, post_norm: bool = False, device=None, use_flash: bool = False):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, d_model, device=device)
-        self.blocks = nn.Sequential(*[TransformerBlock(d_model=d_model, num_heads=num_heads, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop, device=device, use_flash=use_flash) for _ in range(num_layers)])
+        self.blocks = nn.Sequential(*[TransformerBlock(d_model=d_model, num_heads=num_heads, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop, parallel_layers=parallel_layers, post_norm=post_norm, device=device, use_flash=use_flash) for _ in range(num_layers)])
         self.position_embedding = nn.Parameter(torch.zeros(context_length, d_model, device=device))
         self.dropout = nn.Dropout(residual_pdrop or 0.0)
         self.ln_final = RMSNorm(d_model, device=device)

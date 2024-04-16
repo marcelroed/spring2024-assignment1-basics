@@ -3,6 +3,8 @@
 ## Installation
 1. Ensure you have Rust on your machine. You can get it with rustup, using the system package manager, or even with conda.
 `rustc` and `cargo` should be available on your machine.
+Additionally, Oniguruma (the library used for complex regex parsing) requires `clangdev`, which can be gotten by just installing clang on your machine.
+If this is missing, the compiler will fail referencing "ONIG".
 
 2. `maturin` is used to build PyO3 code, so install that using `pip`:
 ```sh

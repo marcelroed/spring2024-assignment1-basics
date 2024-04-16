@@ -99,7 +99,7 @@ def load_tokenizer_for_dataset(dataset: Literal['owt', 'tinystories']) -> Tokeni
         vocab = pickle.load(f)
     with open(tokenizer_path / f'{dataset_path.stem}_merges.pkl', 'rb') as f:
         merges = pickle.load(f)
-    tokenizer = Tokenizer(vocab, merges)
+    tokenizer = Tokenizer(vocab, merges, special_tokens=['<|endoftext|>'])
     return tokenizer
 
 def sample_and_compress(dataset: Literal['owt', 'tinystories'], with_tokenizer_from: Literal['owt', 'tinystories'] | None = None):

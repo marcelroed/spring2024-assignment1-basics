@@ -99,7 +99,7 @@ impl RustTokenizer {
             while let None = &text.get(loc..) {
                 loc += 1;
             }
-            let loc = self.special_regex.as_ref().and_then(|r| r.find(&text[loc..])).map(|r| r.end()).or_else(|| text[loc..].find(".\n").map(|x| x + 1 + loc));
+            let loc = self.special_regex.as_ref().and_then(|r| r.find(&text[loc..])).map(|r| r.end() + loc).or_else(|| text[loc..].find(".\n").map(|x| x + 1 + loc));
             if let Some(loc) = loc {
                 boundaries.push(loc); // Found a good place to chunk
             }
@@ -108,6 +108,8 @@ impl RustTokenizer {
 
         let boundaries = boundaries.into_iter().collect::<HashSet<usize>>().into_iter().sorted().collect::<Vec<usize>>();
         let chunk_ranges: Vec<Range<usize>> = boundaries.into_iter().sorted().tuple_windows().map(|(start, end)| start..end).collect();
+
+        println!("Min chunk size: {}, max chunk size: {}", chunk_ranges.iter().map(|r| r.len()).min().unwrap(), chunk_ranges.iter().map(|r| r.len()).max().unwrap());
 
         let words_chunks: Vec<_> = chunk_ranges.into_par_iter().map(|range| {
             let chunk = &text[range.clone()];
@@ -130,18 +132,13 @@ impl RustTokenizer {
             tokens
         }).collect();
 
+        println!("Gathering to a single vector");
         let words = crate::utils::parallel_concat(&words_chunks);
 
-        // let text = unsafe{std::str::from_utf8_unchecked(text.as_bytes())};
-
-        // let words: Vec<&str> = self.re.find_iter(text).map(|m| &text[m.0..m.1]).collect();
-        // let words = self.vocab.iter().map(|(k, v)| (k, Cow::Borrowed(v))).collect::<HashMap<_, _>>();
-        // let words = bpe::encode(words, &self.merges, &self.special_tokens, words);
-
-        // let words = words.into_iter().map(|x| PyBytes::new_bound(py, &x)).collect::<Vec<_>>();
-
-        // Ok(PyList::new(py, words).into())
+        println!("Assembling to numpy array");
         let words_arr = PyArray1::from_vec_bound(py, words);
+        println!("Returning from Rust");
+
         Ok(words_arr)
     }
 

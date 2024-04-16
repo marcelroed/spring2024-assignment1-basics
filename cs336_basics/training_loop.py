@@ -4,6 +4,7 @@ from itertools import count
 import argparse
 from pathlib import Path
 import time
+from math import exp
 
 import numpy as np
 import torch
@@ -34,7 +35,7 @@ def save_checkpoint(model: nn.Module, optimizer: torch.optim.Optimizer, iteratio
         "optimizer_state_dict": optimizer.state_dict(),
     }, out)
 
-def load_checkpoint(src: str | PathLike | BinaryIO | IO[bytes], model: nn.Module, optimizer: torch.optim.Optimizer):
+def load_checkpoint(src: str | PathLike | BinaryIO | IO[bytes], model: nn.Module, optimizer: torch.optim.Optimizer) -> int:
     checkpoint = torch.load(src)
     model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
@@ -47,7 +48,7 @@ def parse_args():
     parser.add_argument('--log-interval', default=100, type=int)
     parser.add_argument('--checkpoint-path', default='checkpoints/', type=str)
 
-    parser.add_argument('--dataset', default='tinystories', type=str, choices=['owt', 'tinystories'])
+    parser.add_argument('--dataset', default='owt', type=str, choices=['owt', 'tinystories'])
 
     parser.add_argument('--d_ff', default=2048, type=int)
     parser.add_argument('--d_vocab_size', default=32_000, type=int)
@@ -56,7 +57,9 @@ def parse_args():
     parser.add_argument('--num_layer', default=4, type=int)
     parser.add_argument('--context_length', default=512, type=int)
     parser.add_argument('--batch_size', default=128, type=int)
-    parser.add_argument('--lr', default=1e-4, type=float)
+    parser.add_argument('--lr', default=1e-3, type=float)
+    parser.add_argument('--parallel_layers', default=False, type=bool)
+    parser.add_argument('--post_norm', default=False, type=bool)
     
     parser.add_argument('--compile', default=True, type=bool)
     # parser.add_argument('--flash', default=False, type=bool)
@@ -70,11 +73,11 @@ def train_model():
     args = parse_args()
     wandb.init(
         project="cs336-assignment-1", entity="marcelroed", config=vars(args),
-        notes='Running learning rate sweeps',
+        name='owt-reference',
     )
     args.flash = True
 
-    model = Transformer(vocab_size=args.d_vocab_size, context_length=args.context_length, num_layers=args.num_layer, d_model=args.d_model, num_heads=args.num_heads, d_ff=args.d_ff, device='cuda', use_flash=args.flash)
+    model = Transformer(vocab_size=args.d_vocab_size, context_length=args.context_length, num_layers=args.num_layer, d_model=args.d_model, num_heads=args.num_heads, d_ff=args.d_ff, parallel_layers=args.parallel_layers, post_norm=args.post_norm, device='cuda', use_flash=args.flash)
 
     if args.compile:
         model = torch.compile(model, fullgraph=True)
@@ -99,18 +102,22 @@ def train_model():
                 y_pred = model(train_x)
                 training_loss = loss_func(y_pred, train_y)
                 training_loss.backward()
+                gradient_clipping(model.parameters(), 1.0)
                 optimizer.step()
                 section_training_loss = (section_training_loss[0] + training_loss.item(), section_training_loss[1] + 1)
-                if training_step % args.checkpoint_interval == 0:
-                    save_checkpoint(model, optimizer, training_step, checkpoints_dir / f'{time_str}_{training_step // 1000}k')
-                if training_step % args.log_interval == 0 and training_step != 0:
-                    wandb.log({'loss/train': section_training_loss[0] / section_training_loss[1]}, step=training_step)
+                if training_step % args.checkpoint_interval == 0 and training_step != 0:
+                    save_checkpoint(model, optimizer, training_step, checkpoints_dir / f'{wandb.run.name}_{time_str}_{training_step // 1000}k')
+                if training_step % args.log_interval == 0:
+                    training_loss_avg = section_training_loss[0] / section_training_loss[1]
+                    wandb.log({'loss/train': training_loss_avg}, step=training_step)
+                    wandb.log({'perplexity/train': exp(training_loss_avg)}, step=training_step)
                     # Compute validation loss
                     valid_x, valid_y = load_data(valid_dataset, batch_size=args.batch_size, context_length=args.context_length, device='cuda')
                     model.eval()
                     with torch.no_grad():
                         valid_loss = loss_func(model(valid_x), valid_y)
-                    wandb.log({'loss/valid': valid_loss}, step=training_step)
+                    wandb.log({'loss/valid': valid_loss.item()}, step=training_step)
+                    wandb.log({'perplexity/valid': torch.exp(valid_loss).item()}, step=training_step)
                     model.train()
         except KeyboardInterrupt:
             pass
