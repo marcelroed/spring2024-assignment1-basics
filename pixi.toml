@@ -23,7 +23,7 @@ python = "3.11.*"
 pip = "*"
 
 [pypi-dependencies]
-torch = { version = ">=2.2.2<2.3" }
+torch = ">=2.2.2"
 tiktoken = "*"
 psutil = "*"
 regex = "*"

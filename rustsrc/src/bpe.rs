@@ -4,14 +4,14 @@ use itertools::Itertools;
 
 pub fn encode(
     re: &Regex, // Regex to pre-tokenize
-    vocab_inv_bytes: &[Option<u32>],  // Mapping from byte to token for initial vocab
-    merges: &HashMap<(u32, u32), u32>, // Tuple of tokens to merged token
+    vocab_inv_bytes: &[Option<u16>],  // Mapping from byte to token for initial vocab
+    merges: &HashMap<(u16, u16), u16>, // Tuple of tokens to merged token
     text: &str
-) -> Vec<u32> {
+) -> Vec<u16> {
     let words: Vec<&str> = re.find_iter(text).map(|m| &text[m.0..m.1]).collect();
     words.into_iter().flat_map(|word| {
         let word_bytes = word.as_bytes();
-        let mut symbols: Vec<u32> = word_bytes.into_iter().map(|c| vocab_inv_bytes[*c as usize].unwrap()).collect();
+        let mut symbols: Vec<u16> = word_bytes.into_iter().map(|c| vocab_inv_bytes[*c as usize].unwrap()).collect();
 
         loop {
             let candidate_merges = symbols.iter().tuple_windows().enumerate().filter_map(|(i, (a, b))| {
@@ -33,7 +33,7 @@ pub fn encode(
 }
 
 
-pub fn decode(v: &[u32], vocab: &HashMap<u32, Vec<u8>>) -> Vec<u8> {
+pub fn decode(v: &[u16], vocab: &HashMap<u16, Vec<u8>>) -> Vec<u8> {
     v.into_iter().flat_map(|&token| vocab.get(&token).unwrap()).copied().collect()
 }
 
@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn test_encode() {
         let re = Regex::new(r"'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+").unwrap();
-        let vocab = HashMap::from([(0_u32, &b" "[..]), (1, b"a"), (2, b"c"), (3, b"e"), (4, b"h"), (5, b"t"), (6, b"th"), (7, b" c"), (8, b" a"), (9, b"the"), (10, b" at")]);
+        let vocab = HashMap::from([(0_u16, &b" "[..]), (1, b"a"), (2, b"c"), (3, b"e"), (4, b"h"), (5, b"t"), (6, b"th"), (7, b" c"), (8, b" a"), (9, b"the"), (10, b" at")]);
         let mut vocab_inv_bytes = vec![None; 256];
         vocab.iter().for_each(|(&k, &v)| {
             if v.len() == 1 {
@@ -53,7 +53,7 @@ mod tests {
             }
         });
 
-        let merges: HashMap<(u32, u32), u32> = vec![(&b"t"[..], &b"h"[..]), (b" ", b"c"), (b" ", b"a"), (b"th", b"e"), (b" a", b"t")].into_iter().map(|(e1, e2)|{
+        let merges: HashMap<(u16, u16), u16> = vec![(&b"t"[..], &b"h"[..]), (b" ", b"c"), (b" ", b"a"), (b"th", b"e"), (b" a", b"t")].into_iter().map(|(e1, e2)|{
             let mut merged = Vec::from(e1);
             merged.append(&mut Vec::from(e2));
             let e1_token = vocab.iter().find(|(_, &v)| &v == &e1).unwrap().0;

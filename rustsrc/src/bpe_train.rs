@@ -11,11 +11,11 @@ use crate::utils::parallel_concat;
 
 #[derive(Clone)]
 pub struct Word {
-    pub symbols: Vec<u32>,
+    pub symbols: Vec<u16>,
     pub word_count: isize,
 }
 
-type Pair = (u32, u32);
+type Pair = (u16, u16);
 
 
 pub fn count_words(words: &[&str]) -> Vec<Word> {
@@ -38,7 +38,7 @@ pub fn count_words(words: &[&str]) -> Vec<Word> {
 
     all_counts.par_iter().map(|(&word, &count)| {
         Word {
-            symbols: word.as_bytes().into_iter().map(|e| *e as u32).collect(),
+            symbols: word.as_bytes().into_iter().map(|e| *e as u16).collect(),
             word_count: count,
         }
     }).collect()
@@ -56,7 +56,7 @@ fn count_pairs(words: &[Word]) -> HashMap<Pair, isize> {
     symbol_counts
 }
 
-fn update_word(w: &mut Word, pair: Pair, new_symbol: u32) -> Vec<(Pair, isize)> {
+fn update_word(w: &mut Word, pair: Pair, new_symbol: u16) -> Vec<(Pair, isize)> {
     let mut i = 0;
     let mut count_changes = vec![];
     while i < w.symbols.len() - 1 {
@@ -79,8 +79,8 @@ fn update_word(w: &mut Word, pair: Pair, new_symbol: u32) -> Vec<(Pair, isize)> 
     count_changes
 }
 
-fn update_words(words: &mut [Word], pair: Pair, new_symbol: u32) -> DashMap<(u32, u32), isize> {
-    let count_changes: DashMap<(u32, u32), isize> = DashMap::new();
+fn update_words(words: &mut [Word], pair: Pair, new_symbol: u16) -> DashMap<(u16, u16), isize> {
+    let count_changes: DashMap<(u16, u16), isize> = DashMap::new();
 
     let n_threads = rayon::current_num_threads();
     // let chunk_size = std::cmp::min(words.len().div_ceil(n_threads), 5_000);
@@ -105,11 +105,11 @@ fn update_words(words: &mut [Word], pair: Pair, new_symbol: u32) -> DashMap<(u32
     count_changes
 }
 
-pub fn assemble_token(token: u32, symbols: &Vec<Vec<u8>>) -> String{
+pub fn assemble_token(token: u16, symbols: &Vec<Vec<u8>>) -> String{
     symbols[token as usize].iter().map(|x| *x as char).collect::<String>()
 }
 
-pub fn train_bpe(in_string: &str, vocab_size: usize, special_tokens: Vec<String>) -> (HashMap<u32, Vec<u8>>, Vec<(Vec<u8>, Vec<u8>)>) {
+pub fn train_bpe(in_string: &str, vocab_size: usize, special_tokens: Vec<String>) -> (HashMap<u16, Vec<u8>>, Vec<(Vec<u8>, Vec<u8>)>) {
     let n_threads = rayon::current_num_threads();
     println!("Starting regex");
 
@@ -212,7 +212,7 @@ pub fn train_bpe(in_string: &str, vocab_size: usize, special_tokens: Vec<String>
 
         symbols.push(new_symbol);
 
-        let count_changes = update_words(&mut words, pair, symbols.len() as u32 - 1);
+        let count_changes = update_words(&mut words, pair, symbols.len() as u16 - 1);
 
         for (pair, change) in count_changes.into_iter() {
             let found_item = pq.change_priority_by(&pair, |p| *p += change);
@@ -223,7 +223,7 @@ pub fn train_bpe(in_string: &str, vocab_size: usize, special_tokens: Vec<String>
     }
     bar.finish();
 
-    let vocab: HashMap<_, _> = symbols.into_iter().enumerate().map(|(i, v)| (i as u32, v)).collect();
+    let vocab: HashMap<_, _> = symbols.into_iter().enumerate().map(|(i, v)| (i as u16, v)).collect();
 
     (vocab, merges)
 }

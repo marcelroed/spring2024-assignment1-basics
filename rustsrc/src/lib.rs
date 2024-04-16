@@ -10,6 +10,7 @@ use itertools::Itertools;
 use onig::Regex;
 use regex::Regex as FastRegex;
 use rayon::prelude::*;
+use numpy::PyArray1;
 
 
 
@@ -17,6 +18,7 @@ use rayon::prelude::*;
 #[pyfunction]
 fn train_bpe<'py>(py: Python<'py>, in_string: Bound<'py, PyBytes>, vocab_size: usize, special_tokens: Vec<String>) -> PyResult<(Bound<'py, PyDict>, Vec<(Bound<'py, PyBytes>, Bound<'py, PyBytes>)>)> {
     println!("Started function");
+    assert!(vocab_size <= 2_usize.pow(16), "vocab_size must be less than 2^16");
     let in_string = unsafe{std::str::from_utf8_unchecked(in_string.as_bytes())};
 
     // Train BPE
@@ -34,10 +36,10 @@ fn train_bpe<'py>(py: Python<'py>, in_string: Bound<'py, PyBytes>, vocab_size: u
 
 #[pyclass]
 struct RustTokenizer {
-    vocab: HashMap<u32, Vec<u8>>,
-    vocab_inv_bytes: Vec<Option<u32>>,
-    merges: HashMap<(u32, u32), u32>,
-    special_tokens_inv: HashMap<Vec<u8>, u32>,
+    vocab: HashMap<u16, Vec<u8>>,
+    vocab_inv_bytes: Vec<Option<u16>>,
+    merges: HashMap<(u16, u16), u16>,
+    special_tokens_inv: HashMap<Vec<u8>, u16>,
     special_regex: Option<FastRegex>,
     re: Regex,
 }
@@ -45,7 +47,7 @@ struct RustTokenizer {
 #[pymethods]
 impl RustTokenizer {
     #[new]
-    fn __new__<'py>(vocab: HashMap<u32, Vec<u8>>, merges: Vec<(Vec<u8>, Vec<u8>)>, mut special_tokens: Vec<String>) -> Self {
+    fn __new__<'py>(vocab: HashMap<u16, Vec<u8>>, merges: Vec<(Vec<u8>, Vec<u8>)>, mut special_tokens: Vec<String>) -> Self {
         special_tokens.sort_by_key(|x| - (x.len() as isize));
         let special_regex = if special_tokens.is_empty() {None} else {
             Some(FastRegex::new(special_tokens.iter().map(|s| regex::escape(s.as_str())).join("|").as_str()).unwrap())
@@ -57,7 +59,7 @@ impl RustTokenizer {
             }
         });
 
-        let merges: HashMap<(u32, u32), u32> = merges.iter().map(|(e1, e2)|{
+        let merges: HashMap<(u16, u16), u16> = merges.iter().map(|(e1, e2)|{
             let mut merged = e1.clone();
             merged.append(&mut e2.clone());
             let e1_token = vocab.iter().find(|(_, v)| *v == e1).unwrap().0;
@@ -86,7 +88,7 @@ impl RustTokenizer {
         }
     }
 
-    fn encode<'py>(&self, text: Bound<'py, PyBytes>) -> PyResult<Vec<u32>> {
+    fn encode<'py>(&self, py: Python<'py>, text: Bound<'py, PyBytes>) -> PyResult<Bound<'py, PyArray1<u16>>> {
         let text = unsafe{std::str::from_utf8_unchecked(text.as_bytes())};
         let n_threads = if text.len() > 100_000 { rayon::current_num_threads()} else {1};
         let chunk_size = text.len().div_ceil(n_threads);
@@ -139,10 +141,11 @@ impl RustTokenizer {
         // let words = words.into_iter().map(|x| PyBytes::new_bound(py, &x)).collect::<Vec<_>>();
 
         // Ok(PyList::new(py, words).into())
-        Ok(words)
+        let words_arr = PyArray1::from_vec_bound(py, words);
+        Ok(words_arr)
     }
 
-    fn decode<'py>(&self, _py: Python<'py>, tokens: Vec<u32>) -> PyResult<String> {
+    fn decode<'py>(&self, _py: Python<'py>, tokens: Vec<u16>) -> PyResult<String> {
         let tokens = bpe::decode(&tokens, &self.vocab);
         let tokens = String::from_utf8_lossy(&tokens).into_owned();
         Ok(tokens)

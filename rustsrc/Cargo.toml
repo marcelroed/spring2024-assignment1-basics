@@ -17,6 +17,7 @@ dashmap = {version = "5.5.3", features = ["rayon"]}
 # fancy-regex = "0.13.0"
 indicatif = "0.17.8"
 itertools = "0.12.1"
+numpy = "0.21.0"
 onig = "6.4.0"
 # pcre2 = "0.2.7"
 priority-queue = "2.0.2"

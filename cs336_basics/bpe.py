@@ -1,4 +1,4 @@
-from typing import Literal, Self, Iterable, Iterator
+from typing import Literal, Iterable, Iterator
 from contextlib import contextmanager
 import time
 from pathlib import Path
@@ -35,7 +35,7 @@ class Tokenizer:
         self.rust_tokenizer = RustTokenizer(vocab, merges, special_tokens)
 
     @classmethod
-    def from_training_text(cls, text: bytes | str, vocab_size: int, special_tokens: list[str] | None = None) -> Self:
+    def from_training_text(cls, text: bytes | str, vocab_size: int, special_tokens: list[str] | None = None):
         if isinstance(text, str):
             text = text.encode('utf-8', errors='strict')
         if special_tokens is None:
@@ -46,27 +46,30 @@ class Tokenizer:
         return cls(vocab, merges, special_tokens)
     
     @classmethod
-    def from_files(cls, vocab_filepath: Path | str, merges_filepath: Path | str, special_tokens: list[str] | None = None) -> Self:
+    def from_files(cls, vocab_filepath: Path | str, merges_filepath: Path | str, special_tokens: list[str] | None = None):
         with open(vocab_filepath, 'rb') as f:
             vocab = pickle.load(f)
         with open(merges_filepath, 'rb') as f:
             merges = pickle.load(f)
         return cls(vocab=vocab, merges=merges, special_tokens=special_tokens)
     
-    def encode(self, text: str | bytes) -> list[int]:
+    def encode(self, text: str | bytes, as_list=True) -> list[int] | np.ndarray:
         if isinstance(text, str):
             text = text.encode('utf-8', errors='replace')
-        return self.rust_tokenizer.encode(text)
+        tokens = self.rust_tokenizer.encode(text)
+        if as_list:
+            return tokens.tolist()
+        return tokens
     
-    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
+    def encode_iterable(self, iterable: Iterable[str], as_list=True) -> Iterator[int] | Iterator[np.ndarray]:
         for text in iterable:
-            yield from self.encode(text)
+            yield from self.encode(text, as_list=as_list)
     
-    def decode(self, tokens: list[int]) -> str:
+    def decode(self, tokens: list[int] | np.ndarray) -> str:
         return self.rust_tokenizer.decode(tokens)
     
     @classmethod
-    def train_from_file(cls, in_path: Path | str, vocab_size: int, special_tokens: list[str] | None = None) -> Self:
+    def train_from_file(cls, in_path: Path | str, vocab_size: int, special_tokens: list[str] | None = None):
         with open(in_path, 'rb') as f:
             text = f.read()
         return cls.from_training_text(text, vocab_size, special_tokens)
@@ -107,9 +110,9 @@ def sample_and_compress(dataset: Literal['owt', 'tinystories'], with_tokenizer_f
         text = f.read(1_000_000)
     # Get the fist 10 documents
     first_10_lines = next(iter(re.finditer(r"([\s\S]*?<\|endoftext\|>){10}", text))).group(0)
-    before_len = len(first_10_lines)
-    tokens = tokenizer.encode(first_10_lines)
-    after_len = len(tokens)
+    before_len = len(first_10_lines.encode('utf-8', errors='replace'))
+    tokens = tokenizer.encode(first_10_lines, as_list=False)
+    after_len = tokens.nbytes
     compression_ratio = before_len / after_len
     print(f'Compression ratio for {dataset}: {compression_ratio}')
 
@@ -120,7 +123,7 @@ def tokenizer_throughput(dataset: Literal['owt', 'tinystories']):
         text = f.read(n_bytes)
     print('Starting encode')
     start = time.time()
-    _tokens = tokenizer.encode(text)
+    _tokens = tokenizer.encode(text, as_list=False)
     end = time.time()
     print(f'Encoded {n_bytes} bytes in {end - start} seconds')
     print(f'Throughput: {(n_bytes / 1e9) / (end - start)} GB/s')
@@ -129,15 +132,17 @@ def tokenize_full_dataset(dataset: Literal['owt', 'tinystories']):
     tokenizer = load_tokenizer_for_dataset(dataset)
     with open(DATASET_PATHS[dataset], 'rb') as f:
         text = f.read()
-    tokens = tokenizer.encode(text)
-    with open(f'data/{dataset}_train_tokens.npz', 'wb') as f:
-        np.savez_compressed(f, tokens=tokens)
+    print('Tokenizing...')
+    tokens = tokenizer.encode(text, as_list=False)
+    print('Done tokenizing!')
+    with open(f'data/{dataset}_train_tokens.npy', 'wb') as f:
+        np.save(f, tokens)
     
     with open(DATASET_VALID_PATHS[dataset], 'rb') as f:
         text = f.read()
-    tokens = tokenizer.encode(text)
-    with open(f'data/{dataset}_valid_tokens.npz', 'wb') as f:
-        np.savez_compressed(f, tokens=tokens)
+    tokens = tokenizer.encode(text, as_list=False)
+    with open(f'data/{dataset}_valid_tokens.npy', 'wb') as f:
+        np.save(f, tokens)
 
 def test_training():
     with open('data/bpe_trivial.txt', 'r') as f:
@@ -149,11 +154,17 @@ def test_training():
 
 if __name__ == '__main__':
     # test_training()
-    train_on_dataset('tinystories')
+    # train_on_dataset('tinystories')
     # train_on_dataset('owt')
+
+    # sample_and_compress('tinystories', 'tinystories')
+    # sample_and_compress('owt', 'owt')
+
     # sample_and_compress('tinystories', 'owt')
     # sample_and_compress('owt', 'tinystories')
+
     # tokenizer_throughput('tinystories')
     # tokenizer_throughput('owt')
-    # tokenize_full_dataset('tinystories')
-    # tokenize_full_dataset('owt')
+
+    tokenize_full_dataset('tinystories')
+    tokenize_full_dataset('owt')
