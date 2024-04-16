@@ -48,12 +48,15 @@ def parse_args():
     parser.add_argument('--checkpoint-path', default='checkpoints/', type=str)
 
     parser.add_argument('--d_ff', default=2048, type=int)
-    parser.add_argument('--d_vocab_size', default=10_000, type=int)
+    parser.add_argument('--d_vocab_size', default=32_000, type=int)
     parser.add_argument('--d_model', default=512, type=int)
     parser.add_argument('--num_heads', default=16, type=int)
     parser.add_argument('--num_layer', default=4, type=int)
     parser.add_argument('--batch_size', default=128, type=int)
     parser.add_argument('--context_length', default=512, type=int)
+    
+    parser.add_argument('--compile', default=True, type=bool)
+    parser.add_argument('--flash', default=True, type=bool)
 
     return parser.parse_args()
 
@@ -61,31 +64,43 @@ def parse_args():
 def train_model():
     import wandb
     from tqdm.auto import tqdm
-    # wandb.init(project="cs336-assignment-1", entity="marcelroed")
+    wandb.init(project="cs336-assignment-1", entity="marcelroed")
     args = parse_args()
-    model = Transformer(vocab_size=args.d_vocab_size, context_length=args.context_length, num_layers=args.num_layer, d_model=args.d_model, num_heads=args.num_heads, d_ff=args.d_ff, device='cuda')
+    model = Transformer(vocab_size=args.d_vocab_size, context_length=args.context_length, num_layers=args.num_layer, d_model=args.d_model, num_heads=args.num_heads, d_ff=args.d_ff, device='cuda', use_flash=args.flash)
+    if args.compile:
+        model = torch.compile(model)
+    
     optimizer = AdamW(model.parameters(), lr=1e-4)
 
-    train_dataset = np.memmap('data/tinystories_train_tokens.npy', dtype=np.uint16, mode='r')
+    train_dataset = np.memmap('data/owt_train_tokens.npy', dtype=np.uint16, mode='r')
+    valid_dataset = np.memmap('data/owt_valid_tokens.npy', dtype=np.uint16, mode='r')
 
     checkpoints_dir = Path(args.checkpoint_path); checkpoints_dir.mkdir(exist_ok=True)
     
     # Format time to be used in checkpoint filenames
     time_str = time.strftime('%Y-%m-%d_%H-%M-%S')
 
+    model.train()
+    section_training_loss = (0.0, 0)
     try:
         for training_step, (train_x, train_y) in enumerate(tqdm(data_generator(train_dataset, batch_size=128, context_length=512, device='cuda'))):
             optimizer.zero_grad()
             y_pred = model(train_x)
             training_loss = cross_entropy_loss(y_pred, train_y)
             training_loss.backward()
+            section_training_loss = (section_training_loss[0] + training_loss.item(), section_training_loss[1] + 1)
             optimizer.step()
             if (training_step + 1) % args.checkpoint_interval == 0:
                 save_checkpoint(model, optimizer, training_step, checkpoints_dir / f'{time_str}_{training_step // 1000}k')
             if (training_step + 1) % args.log_interval == 0:
-                validation_loss = model()
-                pass
-            
+                wandb.log({'loss/train': section_training_loss[0] / section_training_loss[1]}, step=training_step)
+                # Compute validation loss
+                valid_x, valid_y = load_data(valid_dataset, batch_size=128, context_length=512, device='cuda')
+                model.eval()
+                with torch.no_grad():
+                    valid_loss = cross_entropy_loss(model(valid_x), valid_y)
+                wandb.log({'loss/valid': valid_loss}, step=training_step)
+                model.train()
     except KeyboardInterrupt:
         pass
 

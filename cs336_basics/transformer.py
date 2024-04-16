@@ -104,7 +104,7 @@ class MHASelfAttention(nn.Module):
         qkv_heads = einsum(x, self.W_qkv, "... s m, qkv h d m -> ... qkv h s d")
         Q, K, V = qkv_heads[..., 0, :, :, :], qkv_heads[..., 1, :, :, :], qkv_heads[..., 2, :, :, :]
         if self.use_flash:
-            attn_output = F.scaled_dot_product_attention(Q, K, V, dropout_p=self.attn_pdrop, is_causal=True)
+            attn_output = F.scaled_dot_product_attention(Q, K, V, dropout_p=self.attn_pdrop or 0.0, is_causal=True)
         else:
             mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device), diagonal=1)
             attn_output = sdpa(Q, K, V, mask=mask, pdrop=self.attn_pdrop)
@@ -140,7 +140,7 @@ class Transformer(nn.Module):
     def __init__(self, *, vocab_size: int, context_length: int, num_layers: int, d_model: int, num_heads: int, d_ff: int, attn_pdrop: float | None = None, residual_pdrop: float | None = None, device=None, use_flash: bool = False):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, d_model, device=device)
-        self.blocks = nn.Sequential(*[TransformerBlock(d_model=d_model, num_heads=num_heads, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop, device=device) for _ in range(num_layers)])
+        self.blocks = nn.Sequential(*[TransformerBlock(d_model=d_model, num_heads=num_heads, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop, device=device, use_flash=use_flash) for _ in range(num_layers)])
         self.position_embedding = nn.Parameter(torch.zeros(context_length, d_model, device=device))
         self.dropout = nn.Dropout(residual_pdrop or 0.0)
         self.ln_final = RMSNorm(d_model, device=device)
