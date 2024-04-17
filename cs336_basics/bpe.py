@@ -154,8 +154,8 @@ def test_training():
 
 if __name__ == '__main__':
     # test_training()
-    # train_on_dataset('tinystories')
-    # train_on_dataset('owt')
+    train_on_dataset('tinystories')
+    train_on_dataset('owt')
 
     # sample_and_compress('tinystories', 'tinystories')
     # sample_and_compress('owt', 'owt')
@@ -166,5 +166,5 @@ if __name__ == '__main__':
     # tokenizer_throughput('tinystories')
     # tokenizer_throughput('owt')
 
-    tokenize_full_dataset('tinystories')
-    tokenize_full_dataset('owt')
+    # tokenize_full_dataset('tinystories')
+    # tokenize_full_dataset('owt')

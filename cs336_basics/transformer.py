@@ -177,7 +177,7 @@ class MHSelfAttention(nn.Module):
             self.rotary_embeddings.apply_rotary_embedding_to_qk_(qkv_heads)
         Q, K, V = qkv_heads[..., 0, :, :, :], qkv_heads[..., 1, :, :, :], qkv_heads[..., 2, :, :, :]
         if self.use_flash:
-            attn_output = F.scaled_dot_product_attention(Q, K, V, dropout_p=self.attn_pdrop or 0.0, is_causal=True)
+            attn_output = F.scaled_dot_product_attention(Q, K, V, dropout_p=self.attn_pdrop or 0, is_causal=True)
         else:
             mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device), diagonal=1)
             attn_output = sdpa(Q, K, V, mask=mask, pdrop=self.attn_pdrop)
@@ -221,17 +221,22 @@ class TransformerBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, *, vocab_size: int, context_length: int, num_layers: int, d_model: int, num_heads: int, d_ff: int, activation: Literal['gelu', 'silu'] = 'gelu', use_gated_mlp: bool = False, use_rotary_embeddings: bool = False, attn_pdrop: float | None = None, residual_pdrop: float | None = None, parallel_layers: bool = False, post_norm: bool = False, device=None, use_flash: bool = False):
+    def __init__(self, *, vocab_size: int, context_length: int, num_layers: int, d_model: int, num_heads: int, d_ff: int, activation: Literal['gelu', 'silu'] = 'gelu', tie_embeddings: bool = False, use_gated_mlp: bool = False, use_rotary_embeddings: bool = False, attn_pdrop: float | None = None, residual_pdrop: float | None = None, parallel_layers: bool = False, post_norm: bool = False, device=None, use_flash: bool = False):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, d_model, device=device)
+        if tie_embeddings:
+            nn.init.kaiming_uniform_(self.token_embedding.weight, a=sqrt(5))
+
         self.blocks = nn.Sequential(*[TransformerBlock(d_model=d_model, num_heads=num_heads, activation=activation, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop,
                                                        parallel_layers=parallel_layers, post_norm=post_norm, device=device, use_flash=use_flash, use_rotary_embeddings=use_rotary_embeddings,
                                                        context_length=context_length, use_gated_mlp=use_gated_mlp) for _ in range(num_layers)])
+        self.tie_embeddings = tie_embeddings
         if not use_rotary_embeddings:
             self.position_embedding = nn.Parameter(torch.zeros(context_length, d_model, device=device))
         self.dropout = nn.Dropout(residual_pdrop or 0.0)
         self.ln_final = RMSNorm(d_model, device=device)
-        self.lm_head = nn.Linear(d_model, vocab_size, bias=False, device=device)
+        if not self.tie_embeddings:
+            self.lm_head = nn.Linear(d_model, vocab_size, bias=False, device=device)
         print(f"{self=}")
 
     def set_weights_from_dict(self, d):
@@ -250,7 +255,10 @@ class Transformer(nn.Module):
             x = self.dropout(self.token_embedding(x))
         x = self.blocks(x)
         x = self.ln_final(x)
-        x = self.lm_head(x)
+        if self.tie_embeddings:
+            x = F.linear(x, self.token_embedding.weight)
+        else:
+            x = self.lm_head(x)
         # x = softmax(x, dim=-1)
         return x
         

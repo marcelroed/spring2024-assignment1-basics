@@ -52,7 +52,6 @@ def parse_args():
     parser.add_argument('--dataset', default='owt', type=str, choices=['owt', 'tinystories'])
 
     parser.add_argument('--d_ff', default=2048, type=int)
-    parser.add_argument('--d_vocab_size', default=32_000, type=int)
     parser.add_argument('--total_steps', default=70_000, type=int)  # Just an estimate
     parser.add_argument('--d_model', default=512, type=int)
     parser.add_argument('--num_heads', default=16, type=int)
@@ -66,6 +65,9 @@ def parse_args():
     parser.add_argument('--rotary', default=True, type=bool)
     parser.add_argument('--activation', default='silu', type=str, choices=['gelu', 'silu'])
     parser.add_argument('--use_gated_mlp', default=True, type=bool)
+    parser.add_argument('--tie_embeddings', default=True, type=bool)
+    parser.add_argument('--decay', default=1.0, type=float)
+    parser.add_argument('--use_sophia', default=False, type=bool)
     
     parser.add_argument('--compile', default=True, type=bool)
 
@@ -76,18 +78,20 @@ def train_model():
     import wandb
     from tqdm.auto import tqdm
     args = parse_args()
-    wandb.init(
-        project="cs336-assignment-1", entity="marcelroed", config=vars(args),
-        name=args.name,
-    )
     args.flash = True
 
-    model = Transformer(use_gated_mlp=args.use_gated_mlp, vocab_size=args.d_vocab_size, activation=args.activation, context_length=args.context_length, num_layers=args.num_layer, d_model=args.d_model, num_heads=args.num_heads, d_ff=args.d_ff, parallel_layers=args.parallel_layers, post_norm=args.post_norm, device='cuda', use_flash=args.flash, use_rotary_embeddings=args.rotary)
+    vocab_size = 32_000 if args.dataset == 'owt' else 10_000
+    model = Transformer(tie_embeddings=args.tie_embeddings, use_gated_mlp=args.use_gated_mlp, vocab_size=vocab_size, activation=args.activation, context_length=args.context_length, num_layers=args.num_layer, d_model=args.d_model, num_heads=args.num_heads, d_ff=args.d_ff, parallel_layers=args.parallel_layers, post_norm=args.post_norm, device='cuda', use_flash=args.flash, use_rotary_embeddings=args.rotary)
 
     if args.compile:
         model = torch.compile(model, fullgraph=True)
     
-    optimizer = AdamW(model.parameters(), lr=args.lr)
+    if args.use_sophia:
+        from sophia import SophiaG
+        optimizer = SophiaG(model.parameters(), lr=2e-4, betas=(0.965, 0.99), rho = 0.01, weight_decay=1e-1)
+    else:
+        optimizer = AdamW(model.parameters(), lr=args.lr)
+
     loss_func = torch.compile(cross_entropy_loss, fullgraph=True)
 
     train_dataset = np.memmap(f'data/{args.dataset}_train_tokens.npy', dtype=np.uint16, mode='r')
@@ -100,7 +104,7 @@ def train_model():
 
     schedule_end_time = args.total_steps
     warmup_iters = int(schedule_end_time * 0.05)
-    lr_schedule = partial(cosine_with_warmup_lr_schedule, max_learning_rate=args.lr, min_learning_rate=5e-4, warmup_iters=warmup_iters, cosine_cycle_iters=schedule_end_time)
+    lr_schedule = partial(cosine_with_warmup_lr_schedule, max_learning_rate=args.lr, min_learning_rate=args.lr * args.decay, warmup_iters=warmup_iters, cosine_cycle_iters=schedule_end_time)
 
     with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
         model.train()
@@ -109,8 +113,8 @@ def train_model():
             pbar = tqdm(data_generator(train_dataset, batch_size=args.batch_size, context_length=args.context_length, device='cuda'))
             for training_step, (train_x, train_y) in enumerate(pbar):
                 # Maybe fix crashes that happen very seldomly
-                train_x = torch.minimum(train_x, torch.tensor(args.d_vocab_size - 1, device='cuda'))
-                train_y = torch.minimum(train_y, torch.tensor(args.d_vocab_size - 1, device='cuda'))
+                train_x = torch.minimum(train_x, torch.tensor(vocab_size - 1, device='cuda'))
+                train_y = torch.minimum(train_y, torch.tensor(vocab_size - 1, device='cuda'))
                 lr_value = lr_schedule(training_step)
                 optimizer.zero_grad()
                 optimizer.param_groups[0]['lr'] = lr_value
@@ -124,15 +128,20 @@ def train_model():
                 if training_step % args.checkpoint_interval == 0 and training_step != 0:
                     save_checkpoint(model, optimizer, training_step, checkpoints_dir / f'{wandb.run.name}_{time_str}_{training_step // 1000}k')
                 if training_step % args.log_interval == 0:
-                    training_loss_avg = section_training_loss[0] / section_training_loss[1]
-                    section_training_loss = (0.0, 0)
-                    wandb.log({'loss/train': training_loss_avg}, step=training_step)
-                    wandb.log({'perplexity/train': exp(training_loss_avg)}, step=training_step)
+                    model.eval()
                     # Compute validation loss
                     valid_x, valid_y = load_data(valid_dataset, batch_size=args.batch_size, context_length=args.context_length, device='cuda')
-                    model.eval()
                     with torch.no_grad():
                         valid_loss = loss_func(model(valid_x), valid_y)
+                    training_loss_avg = section_training_loss[0] / section_training_loss[1]
+                    section_training_loss = (0.0, 0)
+                    if training_step == 0:
+                        wandb.init(
+                            project="cs336-assignment-1", entity="marcelroed", config=vars(args),
+                            name=args.name,
+                        )
+                    wandb.log({'loss/train': training_loss_avg}, step=training_step)
+                    wandb.log({'perplexity/train': torch.exp(torch.tensor(training_loss_avg))}, step=training_step)
                     wandb.log({'loss/valid': valid_loss.item()}, step=training_step)
                     wandb.log({'perplexity/valid': torch.exp(valid_loss).item()}, step=training_step)
                     wandb.log({'lr': optimizer.param_groups[0]['lr']}, step=training_step)
