@@ -89,6 +89,9 @@ impl RustTokenizer {
     }
 
     fn encode<'py>(&self, py: Python<'py>, text: Bound<'py, PyBytes>) -> PyResult<Bound<'py, PyArray1<u16>>> {
+        if text.as_bytes().is_empty() {
+            return Ok(PyArray1::from_vec_bound(py, vec![]));
+        }
         let text = unsafe{std::str::from_utf8_unchecked(text.as_bytes())};
         let n_threads = if text.len() > 100_000 { rayon::current_num_threads()} else {1};
         let chunk_size = text.len().div_ceil(n_threads);

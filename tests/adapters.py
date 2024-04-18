@@ -217,7 +217,7 @@ def run_transformer_block(
         running the Transformer block on the input features.
     """
     print(f"{in_features.shape=}")
-    transformer_block = TransformerBlock(d_model, num_heads, d_ff, attn_pdrop, residual_pdrop)
+    transformer_block = TransformerBlock(d_model=d_model, num_heads=num_heads, d_ff=d_ff, attn_pdrop=attn_pdrop, residual_pdrop=residual_pdrop, context_length=None)
     transformer_block.set_weights_from_dict(weights)
     return transformer_block(in_features)
 

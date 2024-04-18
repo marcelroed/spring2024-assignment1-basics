@@ -189,7 +189,7 @@ class MHSelfAttention(nn.Module):
         return out
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model: int, num_heads: int, context_length: int, use_rotary_embeddings: bool, use_gated_mlp: bool, d_ff: int, attn_pdrop: float | None = None, activation: Literal['gelu', 'silu'] = 'gelu', use_flash: bool = False, residual_pdrop: float | None = None, parallel_layers: bool = False, post_norm: bool = False, device=None):
+    def __init__(self, d_model: int, num_heads: int, d_ff: int, context_length: int = None, use_rotary_embeddings: bool = False, use_gated_mlp: bool = False,  attn_pdrop: float | None = None, activation: Literal['gelu', 'silu'] = 'gelu', use_flash: bool = False, residual_pdrop: float | None = None, parallel_layers: bool = False, post_norm: bool = False, device=None):
         super().__init__()
         self.attn = MHSelfAttention(d_model=d_model, num_heads=num_heads, attn_pdrop=attn_pdrop, use_flash=use_flash, context_length=context_length, use_rotary_embeddings=use_rotary_embeddings, device=device)
         self.ln1 = RMSNorm(d_model, device=device)
