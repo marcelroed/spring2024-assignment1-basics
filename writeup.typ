@@ -1,4 +1,4 @@
-#set page(width: 23cm, height: auto)
+#set page(width: 23cm)
 #set heading(numbering: "1.")
 #set enum(numbering: "(a)")
 #show link: underline
@@ -63,10 +63,10 @@ My code passes the tests in `test_train_bpe.py`.
 === `(train_bpe_expts_owt)`
 1. On the OpenWebText dataset, the training process completes in 5 minutes and 24 seconds. The longest token in the vocabulary is a set of dashes, the token `ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ`, which is 32 characters long.
  This seems like nonsense, but looking through the dataset, it seems like a very common encoding error.
- Specifically, some apostrophes seem to have been encoded as very long sequences of these characters, and 
+ Specifically, some apostrophes seem to have been encoded as very long sequences of these characters.
 
   #figure(
-    image("media/encoding-error.png", width: 80%),
+    image("media/encoding-error.png", width: 70%),
     caption: [
       The dataset contains a lot of these encoding errors, and some of them grow incredibly long.
     ],
@@ -359,6 +359,8 @@ I suspect this is because the CUDA kernels are launched asynchronously and pipel
 )
 We notice that the model without the layer normalization gets destabilized and has a loss value of NaN after roughly 8k steps.
 This does not happen to the reference model (which I ran an extended run for to compare).
+The layer normalization is crucial for training stability, and ensures that the activations signals don't explode or vanish.
+Removing the RMSNorm seems to be fine at first, but the model quickly diverges.
 
 === `(pre_norm_ablation)`
 #figure(
