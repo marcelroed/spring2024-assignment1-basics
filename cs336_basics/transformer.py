@@ -182,9 +182,9 @@ class MHSelfAttention(nn.Module):
             mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device), diagonal=1)
             attn_output = sdpa(Q, K, V, mask=mask, pdrop=self.attn_pdrop)
         # attn_output: (..., heads, seq_len, dv)
-        concatenated = rearrange(attn_output, "... h s d -> ... s (h d)")
+        concatenated = rearrange(attn_output, "... head token d -> ... token (head d)")
         
-        out = einsum(concatenated, self.W_o.weight, "... s hd, d hd -> ... s d")
+        out = einsum(concatenated, self.W_o.weight, "... token head, d head -> ... token d")
         
         return out
 
