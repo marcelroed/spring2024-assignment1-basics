@@ -68,6 +68,7 @@ def parse_args():
     parser.add_argument('--tie_embeddings', default=True, type=bool)
     parser.add_argument('--decay', default=1.0, type=float)
     parser.add_argument('--use_sophia', default=False, type=bool)
+    parser.add_argument('--flash', default=False, type=bool)
     
     parser.add_argument('--compile', default=True, type=bool)
 
@@ -78,7 +79,6 @@ def train_model():
     import wandb
     from tqdm.auto import tqdm
     args = parse_args()
-    args.flash = True
 
     vocab_size = 32_000 if args.dataset == 'owt' else 10_000
     model = Transformer(tie_embeddings=args.tie_embeddings, use_gated_mlp=args.use_gated_mlp, vocab_size=vocab_size, activation=args.activation, context_length=args.context_length, num_layers=args.num_layer, d_model=args.d_model, num_heads=args.num_heads, d_ff=args.d_ff, parallel_layers=args.parallel_layers, post_norm=args.post_norm, device='cuda', use_flash=args.flash, use_rotary_embeddings=args.rotary)
