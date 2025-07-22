@@ -25,12 +25,12 @@ fn train_bpe<'py>(py: Python<'py>, in_string: Bound<'py, PyBytes>, vocab_size: u
     let (vocab, merges) = bpe_train::train_bpe(in_string, vocab_size, special_tokens);
 
     // Convert vocab to Python
-    let vocab_py = vocab.into_iter().map(|(k, v)| (k, PyBytes::new_bound(py, &v))).sorted_by(|e1, e2| Ord::cmp(&e1.0, &e2.0)).into_py_dict_bound(py);
+    let vocab_py = vocab.into_iter().map(|(k, v)| (k, PyBytes::new(py, &v))).sorted_by(|e1, e2| Ord::cmp(&e1.0, &e2.0)).into_py_dict(py);
 
     // Convert merges to Python
-    let merges_py: Vec<_> = merges.into_iter().map(|(k, v)| (PyBytes::new_bound(py, &k), PyBytes::new_bound(py, &v))).collect();
+    let merges_py: Vec<_> = merges.into_iter().map(|(k, v)| (PyBytes::new(py, &k), PyBytes::new(py, &v))).collect();
 
-    Ok((vocab_py, merges_py))
+    Ok((vocab_py?, merges_py))
 }
 
 
@@ -90,7 +90,7 @@ impl RustTokenizer {
 
     fn encode<'py>(&self, py: Python<'py>, text: Bound<'py, PyBytes>) -> PyResult<Bound<'py, PyArray1<u16>>> {
         if text.as_bytes().is_empty() {
-            return Ok(PyArray1::from_vec_bound(py, vec![]));
+            return Ok(PyArray1::from_vec(py, vec![]));
         }
         let text = unsafe{std::str::from_utf8_unchecked(text.as_bytes())};
         let n_threads = if text.len() > 100_000 { rayon::current_num_threads()} else {1};
@@ -139,7 +139,7 @@ impl RustTokenizer {
         let words = crate::utils::parallel_concat(&words_chunks);
 
         println!("Assembling to numpy array");
-        let words_arr = PyArray1::from_vec_bound(py, words);
+        let words_arr = PyArray1::from_vec(py, words);
         println!("Returning from Rust");
 
         Ok(words_arr)
