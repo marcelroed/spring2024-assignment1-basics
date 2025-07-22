@@ -1,0 +1,21 @@
+[project]
+name = "spring2024-assignment1-basics"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.2.2",
+    "psutil>=6.1.1",
+    "pytest>=8.3.4",
+    "tiktoken>=0.8.0",
+    "torch>=2.5.1",
+    "einops>=0.8.0",
+    "joblib>=1.4.2",
+    "pytest-xdist>=3.6.1",
+    "rustsrc",
+    "maturin>=1.9.1",
+]
+
+[tool.uv.sources]
+rustsrc = { path = "./rustsrc" }
