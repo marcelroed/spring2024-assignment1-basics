@@ -52,10 +52,6 @@ impl<'a> UTF8Iterator<'a> {
         Self { bytes, pos: 0 }
     }
 
-    fn next_codepoint_slice(&mut self) -> Option<&'a [u8]> {
-        todo!()
-    }
-
     fn next_codepoint(&mut self) -> Option<char> {
         let cp = unsafe { str::from_utf8_unchecked(&self.bytes[self.pos..]) }
             .chars()
@@ -351,11 +347,7 @@ impl<'a> Iterator for PretokenizerIter<'a> {
                     Ok(WhitespaceResult::Whitespace(wslen)) => PretokenizerState::Whitespace(wslen),
                     Ok(WhitespaceResult::Neither) => {
                         let saved_token = &self.iter.bytes[self.starting..self.iter.pos - (prev_wslen as usize)];
-                        // save_token(&mut pretokens, &self.iter.bytes[self.starting..self.iter.pos - (prev_wslen as usize)]);
                         self.starting = self.iter.pos - (prev_wslen as usize);
-                        // save_token(&mut pretokens, &self.iter.bytes[self.iter.pos - (prev_wslen as usize)..self.iter.pos]);
-                        // iter.pos += 1; // Don't include the whitespace in the next token
-                        // self.starting = self.iter.pos;
                         if saved_token.is_empty() {
                             PretokenizerState::Save
                         } else {
@@ -385,9 +377,6 @@ impl<'a> Iterator for PretokenizerIter<'a> {
                     }
                 },
                 PretokenizerState::Finish => {
-                    // if iter.pos > starting {
-                    // save_token(&mut self.pretokens, &self.iter.bytes[self.starting..]);
-                    // }
                     let saved_token = &self.iter.bytes[self.starting..self.iter.pos];
                     self.starting = self.iter.pos;
                     break (PretokenizerState::Finish, saved_token);
