@@ -1,8 +1,10 @@
+use itertools::Itertools;
 use rayon::prelude::*;
 use rayon::{iter::ParallelIterator, slice::ParallelSlice};
 use std::collections::HashMap;
 use std::{cmp::min, fs};
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
+use rand::prelude::*;
 
 use pcre2::bytes;
 
@@ -291,85 +293,7 @@ pub fn pretokenize_par(bytes: &[u8]) -> HashMap<&[u8], usize> {
 
 /// Return counts of all pretokens.
 pub fn pretokenize(bytes: &[u8]) -> HashMap<&[u8], usize> {
-    let mut counts = HashMap::new();
-
-    let mut state = PretokenizerState::Start;
-    let mut iter = UTF8Iterator::new(bytes);
-    let mut starting = iter.pos;
-    loop {
-        state = match state {
-            PretokenizerState::Start => match iter.start_check() {
-                Ok(StartResult::Apostrophe) => {
-                    if starting == iter.pos - 1 {
-                        PretokenizerState::Apostrophe
-                    } else {
-                        // Only treat as apostrophe if we don't have a preceding space
-                        PretokenizerState::Nonchar
-                    }
-                }
-                Ok(StartResult::Letter) => PretokenizerState::Letter,
-                Ok(StartResult::Number) => PretokenizerState::Number,
-                Ok(StartResult::AsciiSpace) => PretokenizerState::AsciiSpace,
-                Ok(StartResult::Whitespace(wslen)) => PretokenizerState::Whitespace(wslen),
-                Ok(StartResult::Nonchar) => PretokenizerState::Nonchar,
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::Save => {
-                save_token(&mut counts, &iter.bytes[starting..iter.pos]);
-                starting = iter.pos;
-                PretokenizerState::Start
-            }
-            PretokenizerState::Apostrophe => match iter.apostrophe_check() {
-                Ok(ApostropheResult::Matched) => PretokenizerState::Save,
-                Ok(ApostropheResult::NotMatched) => PretokenizerState::Nonchar,
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::Nonchar => match iter.other_check() {
-                Ok(_) => PretokenizerState::Save,
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::Letter => match iter.letter_check() {
-                Ok(_) => PretokenizerState::Save,
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::Number => match iter.number_check() {
-                Ok(_) => PretokenizerState::Save,
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::Whitespace(prev_wslen) => match iter.whitespace_check() {
-                Ok(WhitespaceResult::AsciiSpace) => PretokenizerState::AsciiSpace,
-                Ok(WhitespaceResult::Whitespace(wslen)) => PretokenizerState::Whitespace(wslen),
-                Ok(WhitespaceResult::Neither) => {
-                    save_token(&mut counts, &iter.bytes[starting..iter.pos - (prev_wslen as usize)]);  // Save all the previous whitespaces
-                    save_token(&mut counts, &iter.bytes[iter.pos - (prev_wslen as usize)..iter.pos]);  // Save the last whitespace separately
-                    starting = iter.pos;
-                    PretokenizerState::Start
-                }
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::AsciiSpace => match iter.whitespace_check() {
-                Ok(WhitespaceResult::AsciiSpace) => PretokenizerState::AsciiSpace,
-                Ok(WhitespaceResult::Whitespace(wslen)) => PretokenizerState::Whitespace(wslen),
-                Ok(WhitespaceResult::Neither) => {
-                    save_token(&mut counts, &iter.bytes[starting..iter.pos - 1]); // Save everything up until the space
-                    starting = iter.pos - 1;  // Include the space in the next token (unless it's a contraction)
-                    PretokenizerState::Start
-                }
-                Err(OutOfBytesError {}) => {
-                    save_token(&mut counts, &iter.bytes[starting..iter.pos]);
-                    PretokenizerState::Finish
-                }
-            },
-            PretokenizerState::Finish => {
-                if iter.pos > starting {
-                    save_token(&mut counts, &iter.bytes[starting..iter.pos]);
-                }
-                break;
-            }
-        }
-    }
-
-    return counts;
+    pretokenize_as_iter(bytes).counts()
 }
 
 pub struct PretokenizerIter<'a> {
@@ -464,7 +388,9 @@ impl<'a> Iterator for PretokenizerIter<'a> {
                     // if iter.pos > starting {
                     // save_token(&mut self.pretokens, &self.iter.bytes[self.starting..]);
                     // }
-                    break (PretokenizerState::Finish, &self.iter.bytes[self.starting..self.iter.pos]);
+                    let saved_token = &self.iter.bytes[self.starting..self.iter.pos];
+                    self.starting = self.iter.pos;
+                    break (PretokenizerState::Finish, saved_token);
                 }
             }
         };
@@ -485,100 +411,10 @@ pub fn pretokenize_as_iter<'a>(bytes: &'a [u8]) -> PretokenizerIter<'a> {
     }
 }
 
-pub fn pretokenize_as_list(bytes: &[u8]) -> Vec<&[u8]> {
-    let mut pretokens = vec![];
-
-    fn save_token<'a>(pretokens: &mut Vec<&'a [u8]>, token: &'a [u8]) {
-        if !token.is_empty() {
-            pretokens.push(token);
-        }
-    }
-
-    let mut state = PretokenizerState::Start;
-    let mut iter = UTF8Iterator::new(bytes);
-    let mut starting = iter.pos;
-    loop {
-        state = match state {
-            PretokenizerState::Start => match iter.start_check() {
-                Ok(StartResult::Apostrophe) => {
-                    if starting == iter.pos - 1 {
-                        PretokenizerState::Apostrophe
-                    } else {
-                        // Only treat as apostrophe if we don't have a preceding space
-                        PretokenizerState::Nonchar
-                    }
-                }
-                Ok(StartResult::Letter) => PretokenizerState::Letter,
-                Ok(StartResult::Number) => PretokenizerState::Number,
-                Ok(StartResult::AsciiSpace) => PretokenizerState::AsciiSpace,
-                Ok(StartResult::Whitespace(wslen)) => PretokenizerState::Whitespace(wslen),
-                Ok(StartResult::Nonchar) => PretokenizerState::Nonchar,
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::Save => {
-                save_token(&mut pretokens, &iter.bytes[starting..iter.pos]);
-                starting = iter.pos;
-                PretokenizerState::Start
-            }
-            PretokenizerState::Apostrophe => match iter.apostrophe_check() {
-                Ok(ApostropheResult::Matched) => PretokenizerState::Save,
-                Ok(ApostropheResult::NotMatched) => PretokenizerState::Nonchar,
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::Nonchar => match iter.other_check() {
-                Ok(_) => PretokenizerState::Save,
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::Letter => match iter.letter_check() {
-                Ok(_) => PretokenizerState::Save,
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::Number => match iter.number_check() {
-                Ok(_) => PretokenizerState::Save,
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::Whitespace(prev_wslen) => match iter.whitespace_check() {
-                Ok(WhitespaceResult::AsciiSpace) => PretokenizerState::AsciiSpace,
-                Ok(WhitespaceResult::Whitespace(wslen)) => PretokenizerState::Whitespace(wslen),
-                Ok(WhitespaceResult::Neither) => {
-                    save_token(&mut pretokens, &iter.bytes[starting..iter.pos - (prev_wslen as usize)]);
-                    save_token(&mut pretokens, &iter.bytes[iter.pos - (prev_wslen as usize)..iter.pos]);
-                    // iter.pos += 1; // Don't include the whitespace in the next token
-                    starting = iter.pos;
-                    PretokenizerState::Start
-                }
-                Err(OutOfBytesError {}) => PretokenizerState::Finish,
-            },
-            PretokenizerState::AsciiSpace => match iter.whitespace_check() {
-                Ok(WhitespaceResult::AsciiSpace) => PretokenizerState::AsciiSpace,
-                Ok(WhitespaceResult::Whitespace(wslen)) => PretokenizerState::Whitespace(wslen),
-                Ok(WhitespaceResult::Neither) => {
-                    save_token(&mut pretokens, &iter.bytes[starting..iter.pos - 1]);
-                    starting = iter.pos - 1;
-                    PretokenizerState::Start
-                }
-                Err(OutOfBytesError {}) => {
-                    save_token(&mut pretokens, &iter.bytes[starting..iter.pos]);
-                    PretokenizerState::Finish
-                }
-            },
-            PretokenizerState::Finish => {
-                // if iter.pos > starting {
-                save_token(&mut pretokens, &iter.bytes[starting..]);
-                // }
-                break;
-            }
-        }
-    }
-
-    pretokens
-}
-
-
 #[cfg(test)]
 mod test {
     use indicatif::ProgressIterator;
-    use itertools::{sorted, Itertools};
+    use itertools::Itertools;
     use onig::Regex;
 
     use super::*;
@@ -598,34 +434,39 @@ mod test {
 
         // let input = input[..10_000_000].to_vec();
 
-        let re_iterator = re.find_iter(str::from_utf8(&input).unwrap());
 
         // let pretokens = pretokenize_as_list(&input);
-        let pretokens_iterator = pretokenize_as_iter(&input);
+        // let mut last_match: Option<(usize, usize)> = None;
+        for _ in (0..100).progress() {
 
-        let mut previous_tokens: Vec<(String, String)> = vec![];
+            let mut previous_tokens: Vec<(String, String)> = vec![];
 
-        let mut token_idx: usize = 0;
-        let mut last_match: Option<(usize, usize)> = None;
-        for eorb in pretokens_iterator.zip_longest(re_iterator) {
-            let (token, (start, end)) = match eorb {
-                itertools::EitherOrBoth::Both(first, second) => (first, second),
-                itertools::EitherOrBoth::Left(first) => panic!(
-                    "No match found for token {token_idx} at bytes {first:?}, {:?}, {:?}",
-                    str::from_utf8(&input[input.len().saturating_sub(10)..]).unwrap(), &previous_tokens[previous_tokens.len().saturating_sub(10)..]
-                ),
-                itertools::EitherOrBoth::Right(second) => panic!("No token found for match {token_idx} at byte {second:?}"),
-            };
-            last_match = Some((start, end));
-            // let (&token, (start, end)) = eorb.both().unwrap();
-            let token_str = String::from_utf8_lossy(token).into_owned();
-            let match_str = String::from_utf8_lossy(&input[start..end]).into_owned();
-            previous_tokens.push((token_str.clone(), match_str.clone()));
-            // if pretokens.len() > 1000 {
-            //     pretokens.truncate(1000);
-            // }
-            assert_eq!(token_str, match_str, "Token {token_idx} (byte {start}) does not match regex, see last few {:?}\n Byte representation: {:02X?}{:02X?}\nExtended{:02X?}", &previous_tokens[previous_tokens.len().saturating_sub(10)..], token, &input[start..end], &input[start.saturating_sub(5)..end+5]);
-            token_idx += 1;
+            let mut token_idx: usize = 0;
+            const WINDOW_SIZE: usize = 1_000_000;
+            let start = rand::rng().random_range(0..input.len() - WINDOW_SIZE);
+            let input = input[start..start + WINDOW_SIZE].to_vec();
+            let pretokens_iterator = pretokenize_as_iter(&input);
+            let re_iterator = re.find_iter(str::from_utf8(&input).unwrap());
+            for eorb in pretokens_iterator.zip_longest(re_iterator) {
+                let (token, (start, end)) = match eorb {
+                    itertools::EitherOrBoth::Both(first, second) => (first, second),
+                    itertools::EitherOrBoth::Left(first) => panic!(
+                        "No match found for token {token_idx} at bytes {first:?}, {:?}, {:?}",
+                        str::from_utf8(&input[input.len().saturating_sub(10)..]).unwrap(), &previous_tokens[previous_tokens.len().saturating_sub(10)..]
+                    ),
+                    itertools::EitherOrBoth::Right(second) => panic!("No token found for match {token_idx} at byte {second:?}"),
+                };
+                // last_match = Some((start, end));
+                // let (&token, (start, end)) = eorb.both().unwrap();
+                let token_str = String::from_utf8_lossy(token).into_owned();
+                let match_str = String::from_utf8_lossy(&input[start..end]).into_owned();
+                previous_tokens.push((token_str.clone(), match_str.clone()));
+                // if pretokens.len() > 1000 {
+                //     pretokens.truncate(1000);
+                // }
+                assert_eq!(token_str, match_str, "Token {token_idx} (byte {start}) does not match regex, see last few {:?}\n Byte representation: {:02X?}{:02X?}\nExtended{:02X?}", &previous_tokens[previous_tokens.len().saturating_sub(10)..], token, &input[start..end], &input[start.saturating_sub(5)..end+5]);
+                token_idx += 1;
+            }
         }
         
     }
@@ -637,7 +478,9 @@ mod test {
         )
         .unwrap();
 
-        let pretokenized_counts = pretokenize_par(&file_bytes);
+        // let pretokenized_counts = pretokenize_par(&file_bytes);
+        let pretokenized_counts = pretokenize_as_iter(&file_bytes).progress_count(644752805).counts();
+        eprintln!("Pretokenized {} tokens", pretokenized_counts.len());
         // eprintln!("Pretokenized counts: {:?}", pretokenized_counts);
         // Print counts sorted by frequency
         let mut sorted_counts: Vec<_> = pretokenized_counts.iter().collect();
@@ -648,10 +491,24 @@ mod test {
         }
     }
 
+    /// Make sure the total number of pretokens matches Python regex
+    #[test]
+    fn test_pretokenizer_ts_length() {
+        let file_bytes = fs::read(
+            "/home/marcel/projects/spring2024-assignment1-basics/data/TinyStoriesV2-GPT4-train.txt",
+        )
+        .unwrap();
+
+        let pretokens_count = pretokenize_as_iter(&file_bytes).count();
+        eprintln!("Pretokenized {} tokens", pretokens_count);
+        // Check that the total length of all tokens is equal to the input length
+        assert_eq!(pretokens_count, 544752805, "Total number of pretokens does not match expected count");
+    }
+
     #[test]
     fn minimal_tokenization() {
         let input = vec![0x74, 0x75, 0x72, 0x65, 0x73, 0x2E, 0xC2, 0xA0, 0x0A, 0x4F];
-        let pretokens = pretokenize_as_list(&input);
+        let pretokens: Vec<_> = pretokenize_as_iter(&input).collect();
         let re = Regex::new(
             r"'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+",
         ).unwrap();
