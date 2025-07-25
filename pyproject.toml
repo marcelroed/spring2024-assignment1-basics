@@ -15,7 +15,13 @@ dependencies = [
     "pytest-xdist>=3.6.1",
     "rustsrc",
     "maturin>=1.9.1",
+    "ipython>=9.4.0",
 ]
 
 [tool.uv.sources]
-rustsrc = { path = "./rustsrc" }
+rustsrc = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "rustsrc",
+]

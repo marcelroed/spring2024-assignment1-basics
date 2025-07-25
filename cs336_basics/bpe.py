@@ -10,9 +10,10 @@ from rustsrc import train_bpe, RustTokenizer
 import regex as re
 import numpy as np
 
+import pickle
+
 PAT = re.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
 
-import pickle
 
 @contextmanager
 def timer(block_name):
@@ -91,6 +92,20 @@ def train_on_dataset(dataset_name: Literal['owt', 'tinystories']):
         pickle.dump(tokenizer.merges, f)
     return tokenizer
 
+def train_on_dataset_hf(dataset_name: Literal['owt', 'tinystories']):
+    assert dataset_name in ['owt', 'tinystories']
+    in_path = Path(DATASET_PATHS[dataset_name])
+    from tokenizers import 
+    tokenizer = Tokenizer.train_from_file(in_path=in_path,
+                                          vocab_size=10_000 if dataset_name == 'tinystories' else 32_000,
+                                          special_tokens=['<|endoftext|>'])
+    out_path = Path('tokenizers/')
+    with open(out_path / f'{in_path.stem}_vocab.pkl', 'wb') as f:
+        pickle.dump(tokenizer.vocab, f)
+    with open(out_path / f'{in_path.stem}_merges.pkl', 'wb') as f:
+        pickle.dump(tokenizer.merges, f)
+    return tokenizer
+
 
 def load_tokenizer_for_dataset(dataset: Literal['owt', 'tinystories']) -> Tokenizer:
     dataset_path = Path(DATASET_PATHS[dataset])
@@ -154,8 +169,10 @@ def test_training():
 
 if __name__ == '__main__':
     # test_training()
-    train_on_dataset('tinystories')
-    train_on_dataset('owt')
+    # train_on_dataset('tinystories')
+    # train_on_dataset('owt')
+
+    train_on_dataset_hf('tinystories')
 
     # sample_and_compress('tinystories', 'tinystories')
     # sample_and_compress('owt', 'owt')
