@@ -1,14 +1,11 @@
 use itertools::Itertools;
 use rayon::prelude::*;
-use rayon::{iter::ParallelIterator, slice::ParallelSlice};
 use std::collections::HashMap;
-use std::{cmp::min, fs};
+use std::cmp::min;
 use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
-use rand::prelude::*;
 
-use pcre2::bytes;
-
-enum PretokenizerState {
+#[derive(Clone, Debug)]
+pub enum PretokenizerState {
     Start,   // Not matched anything yet
     Nonchar, // Matched some non-alphanumeric and non-whitespace characters, continue until something matching
     Apostrophe,
@@ -21,8 +18,8 @@ enum PretokenizerState {
 }
 
 struct UTF8Iterator<'a> {
-    pub bytes: &'a [u8],
-    pub pos: usize,
+    bytes: &'a [u8],
+    pos: usize,
 }
 
 enum StartResult {
@@ -52,14 +49,19 @@ impl<'a> UTF8Iterator<'a> {
         Self { bytes, pos: 0 }
     }
 
-    fn next_codepoint(&mut self) -> Option<char> {
-        let cp = unsafe { str::from_utf8_unchecked(&self.bytes[self.pos..]) }
-            .chars()
-            .next()?;
-        self.pos += cp.len_utf8();
-        Some(cp)
+    pub fn replace_bytes<'b>(&self, bytes: &'b [u8]) -> UTF8Iterator<'b> {
+        UTF8Iterator { bytes, pos: self.pos }
     }
 
+    // fn next_codepoint(&mut self) -> Option<char> {
+    //     let cp = unsafe { str::from_utf8_unchecked(&self.bytes[self.pos..]) }
+    //         .chars()
+    //         .next()?;
+    //     self.pos += cp.len_utf8();
+    //     Some(cp)
+    // }
+
+    /// Returns the next codepoint as a char (u32) and its length in bytes.
     fn next_codepoint_and_length(&mut self) -> Option<(char, usize)> {
         let cp = unsafe { str::from_utf8_unchecked(&self.bytes[self.pos..]) }
             .chars()
@@ -232,12 +234,6 @@ impl<'a> UTF8Iterator<'a> {
     }
 }
 
-fn save_token<'a>(counts: &mut HashMap<&'a [u8], usize>, token: &'a [u8]) {
-    if !token.is_empty() {
-        *counts.entry(token).or_insert(0) += 1;
-    }
-}
-
 fn find_boundaries(bytes: &[u8]) -> Vec<usize> {
     fn advance_to_boundary(input: &[u8]) -> usize {
         for (i, b) in input.iter().enumerate() {
@@ -249,7 +245,7 @@ fn find_boundaries(bytes: &[u8]) -> Vec<usize> {
     }
 
     let n_threads = rayon::current_num_threads();
-    eprintln!("Using {} threads for pretokenization", n_threads);
+    eprintln!("Using {n_threads} threads for pretokenization");
     let chunk_size = bytes.len().div_ceil(n_threads);
     let mut boundaries: Vec<usize> = (0..=n_threads)
         .map(|i| min(i * chunk_size, bytes.len()))
@@ -271,7 +267,7 @@ pub fn pretokenize_par(bytes: &[u8]) -> HashMap<&[u8], usize> {
             pretokenize(&bytes[start..end])
         })
         .reduce(
-            || HashMap::new(),
+            HashMap::new,
             |mut acc, counts| {
                 for (k, v) in counts {
                     *acc.entry(k).or_insert(0) += v;
@@ -391,6 +387,26 @@ impl<'a> Iterator for PretokenizerIter<'a> {
     }
 }
 
+impl<'a> PretokenizerIter<'a> {
+    pub fn replace_bytes<'b>(&self, bytes: &'b [u8]) -> PretokenizerIter<'b> {
+        let iter = self.iter.replace_bytes(bytes);
+        PretokenizerIter {
+            iter,
+            starting: self.starting,
+            state: self.state.clone(),
+        }
+    }
+}
+
+impl PretokenizerIter<'static> {  // If we contain a 'static, assume it's a dummy
+    pub fn py_next<'a>(&mut self, bytes: &'a [u8]) -> Option<&'a [u8]> {
+        let mut py_self = self.replace_bytes(bytes);
+        let result = py_self.next();
+        *self = py_self.replace_bytes(&[]);
+        result
+    }
+}
+
 
 pub fn pretokenize_as_iter<'a>(bytes: &'a [u8]) -> PretokenizerIter<'a> {
     PretokenizerIter {
@@ -405,6 +421,8 @@ mod test {
     use indicatif::ProgressIterator;
     use itertools::Itertools;
     use onig::Regex;
+    use rand::prelude::*;
+    use std::fs;
 
     use super::*;
 
@@ -430,13 +448,12 @@ mod test {
 
             let mut previous_tokens: Vec<(String, String)> = vec![];
 
-            let mut token_idx: usize = 0;
             const WINDOW_SIZE: usize = 1_000_000;
             let start = rand::rng().random_range(0..input.len() - WINDOW_SIZE);
             let input = input[start..start + WINDOW_SIZE].to_vec();
             let pretokens_iterator = pretokenize_as_iter(&input);
             let re_iterator = re.find_iter(str::from_utf8(&input).unwrap());
-            for eorb in pretokens_iterator.zip_longest(re_iterator) {
+            for (token_idx, eorb) in pretokens_iterator.zip_longest(re_iterator).enumerate() {
                 let (token, (start, end)) = match eorb {
                     itertools::EitherOrBoth::Both(first, second) => (first, second),
                     itertools::EitherOrBoth::Left(first) => panic!(
@@ -454,7 +471,6 @@ mod test {
                 //     pretokens.truncate(1000);
                 // }
                 assert_eq!(token_str, match_str, "Token {token_idx} (byte {start}) does not match regex, see last few {:?}\n Byte representation: {:02X?}{:02X?}\nExtended{:02X?}", &previous_tokens[previous_tokens.len().saturating_sub(10)..], token, &input[start..end], &input[start.saturating_sub(5)..end+5]);
-                token_idx += 1;
             }
         }
         
@@ -489,7 +505,7 @@ mod test {
         .unwrap();
 
         let pretokens_count = pretokenize_as_iter(&file_bytes).count();
-        eprintln!("Pretokenized {} tokens", pretokens_count);
+        eprintln!("Pretokenized {pretokens_count} tokens");
         // Check that the total length of all tokens is equal to the input length
         assert_eq!(pretokens_count, 544752805, "Total number of pretokens does not match expected count");
     }

@@ -15,6 +15,7 @@ use std::ops::Range;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
+#[allow(clippy::type_complexity)]
 fn train_bpe<'py>(
     py: Python<'py>,
     in_string: Bound<'py, PyBytes>,
@@ -32,7 +33,7 @@ fn train_bpe<'py>(
     let in_string = unsafe { std::str::from_utf8_unchecked(in_string.as_bytes()) };
 
     // Train BPE
-    let (vocab, merges) = bpe_train::train_bpe(in_string, vocab_size, special_tokens);
+    let bpe_train::BPEResult { vocab, merges } = bpe_train::train_bpe(in_string, vocab_size, special_tokens);
 
     // Convert vocab to Python
     let vocab_py = vocab
@@ -63,7 +64,7 @@ struct RustTokenizer {
 #[pymethods]
 impl RustTokenizer {
     #[new]
-    fn __new__<'py>(
+    fn __new__(
         vocab: HashMap<u16, Vec<u8>>,
         merges: Vec<(Vec<u8>, Vec<u8>)>,
         mut special_tokens: Vec<String>,
@@ -150,7 +151,7 @@ impl RustTokenizer {
         let mut boundaries = vec![0];
         for i in 1..n_threads {
             let mut loc = i * chunk_size;
-            while let None = &text.get(loc..) {
+            while text.get(loc..).is_none() {
                 loc += 1;
             }
             let loc = self
@@ -213,7 +214,7 @@ impl RustTokenizer {
                         &self.merges,
                         &chunk[offset..],
                     );
-                    tokens.extend(encoding.into_iter());
+                    tokens.extend(encoding);
                 }
                 tokens
             })
@@ -236,11 +237,73 @@ impl RustTokenizer {
     }
 }
 
+
+// #[pyclass]
+// struct Pretokenizer {
+//     filename: String,
+// }
+
+// #[pymethods]
+// impl Pretokenizer {
+//     fn __iter__<'py>(slf: PyRef<'py, Self>) -> PyResult<Bound<'py, PretokenizerIter<'py>>> {
+//         let pretokenizer_iter = PretokenizerIter::new(slf.bytes.as_bytes(slf.py()));
+//         Ok(Py::new(slf.py(), pretokenizer_iter)?)
+//     }
+// }
+
+#[pyclass]
+struct PretokenizerIter {
+    pretokenizer_iter: pretokenize::PretokenizerIter<'static>,
+    bytes: Py<PyBytes>,
+}
+
+#[pymethods]
+impl PretokenizerIter {
+    fn __iter__<'py>(slf: PyRef<'py, Self>) -> PyRef<'py, PretokenizerIter> {
+        slf
+    }
+
+    /// Mumbo jumbo to shuffle around lifetimes so this fits into PyO3's restrictions
+    fn __next__<'py>(&'py mut self, py: Python<'py>) -> Option<&'py [u8]> {
+        let bytes: &'py [u8] = self.bytes.as_bytes(py);
+        let result: Option<&'py [u8]> = self.pretokenizer_iter.py_next(bytes);
+        result
+    }
+}
+
+#[pyfunction]
+fn pretokenizer<'py>(
+    text: Bound<'py, PyBytes>,
+) -> PyResult<PretokenizerIter> {
+    // let text = text.as_bytes();
+    let tokens_iter = pretokenize::pretokenize_as_iter(&[]);
+    Ok(PretokenizerIter { pretokenizer_iter: tokens_iter, bytes: text.into() })
+}
+
+#[pyfunction]
+fn pretokenized_counts<'py>(
+    text: Bound<'py, PyBytes>,
+) -> PyResult<Vec<(Bound<'py, PyBytes>, usize)>> {
+    // let text = text.as_bytes();
+    let tokens_counts = pretokenize::pretokenize_par(text.as_bytes());
+    // Convert keys to PyBytes
+
+    let tokens_counts = tokens_counts
+        .into_iter()
+        .map(|(k, v)| (PyBytes::new(text.py(), k), v))
+        .collect::<Vec<_>>();
+
+    Ok(tokens_counts)
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn rustsrc<'py>(_py: Python, m: &Bound<'py, PyModule>) -> PyResult<()> {
     // m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
     m.add_class::<RustTokenizer>()?;
     m.add_function(wrap_pyfunction!(train_bpe, m)?)?;
+    m.add_class::<PretokenizerIter>()?;
+    m.add_function(wrap_pyfunction!(pretokenizer, m)?)?;
+    m.add_function(wrap_pyfunction!(pretokenized_counts, m)?)?;
     Ok(())
 }

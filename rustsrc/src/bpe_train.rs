@@ -1,16 +1,14 @@
 use dashmap::DashMap;
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use onig::Regex;
 use priority_queue::PriorityQueue;
 use rayon::prelude::*;
 use std::{
-    cell::Cell,
     collections::{BTreeSet, HashMap, HashSet},
     ops::Range,
 };
 
-use crate::{pretokenize::pretokenize_par, utils::parallel_concat};
+use crate::pretokenize::pretokenize_par;
 
 #[derive(Clone)]
 pub struct Word {
@@ -19,39 +17,6 @@ pub struct Word {
 }
 
 type Pair = (u16, u16);
-
-pub fn count_words(words: &[&str]) -> Vec<Word> {
-    let num_words = words.len();
-    let num_threads = rayon::current_num_threads();
-    let chunk_size = num_words.div_ceil(num_threads);
-
-    let all_counts = words
-        .par_chunks(chunk_size)
-        .map(|chunk| {
-            let mut thread_word_counts = HashMap::new();
-            for &word in chunk {
-                *thread_word_counts.entry(word).or_insert(0) += 1;
-            }
-            thread_word_counts
-        })
-        .reduce(
-            || HashMap::new(),
-            |mut acc, thread_word_counts| {
-                for (word, count) in thread_word_counts {
-                    *acc.entry(word).or_insert(0) += count;
-                }
-                acc
-            },
-        );
-
-    all_counts
-        .par_iter()
-        .map(|(&word, &count)| Word {
-            symbols: word.as_bytes().into_iter().map(|e| *e as u16).collect(),
-            word_count: count,
-        })
-        .collect()
-}
 
 fn count_pairs(words: &[Word]) -> HashMap<Pair, isize> {
     let mut symbol_counts: HashMap<Pair, isize> = HashMap::new();
@@ -98,7 +63,7 @@ unsafe impl Send for PtrHolder {}
 
 fn update_words(
     words: &mut [Word],
-    contained_in_words: &mut Vec<BTreeSet<u16>>,
+    contained_in_words: &mut [BTreeSet<u16>],
     pair: Pair,
     new_symbol: u16,
 ) -> DashMap<(u16, u16), isize> {
@@ -155,18 +120,23 @@ fn update_words(
     count_changes
 }
 
-pub fn assemble_token(token: u16, symbols: &Vec<Vec<u8>>) -> String {
+pub fn assemble_token(token: u16, symbols: &[Vec<u8>]) -> String {
     symbols[token as usize]
         .iter()
         .map(|x| *x as char)
         .collect::<String>()
 }
 
+pub struct BPEResult {
+    pub vocab: HashMap<u16, Vec<u8>>,
+    pub merges: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
 pub fn train_bpe(
     in_string: &str,
     vocab_size: usize,
     special_tokens: Vec<String>,
-) -> (HashMap<u16, Vec<u8>>, Vec<(Vec<u8>, Vec<u8>)>) {
+) -> BPEResult {
     let n_threads = rayon::current_num_threads();
     println!("Starting regex");
 
@@ -350,5 +320,5 @@ pub fn train_bpe(
         .map(|(i, v)| (i as u16, v))
         .collect();
 
-    (vocab, merges)
+    BPEResult { vocab, merges }
 }

@@ -14,7 +14,7 @@ pub fn encode(
         .flat_map(|word| {
             let word_bytes = word.as_bytes();
             let mut symbols: Vec<u16> = word_bytes
-                .into_iter()
+                .iter()
                 .map(|c| vocab_inv_bytes[*c as usize].unwrap())
                 .collect();
 
@@ -42,7 +42,7 @@ pub fn encode(
 }
 
 pub fn decode(v: &[u16], vocab: &HashMap<u16, Vec<u8>>) -> Vec<u8> {
-    v.into_iter()
+    v.iter()
         .flat_map(|&token| vocab.get(&token).unwrap())
         .copied()
         .collect()
@@ -88,13 +88,13 @@ mod tests {
         .map(|(e1, e2)| {
             let mut merged = Vec::from(e1);
             merged.append(&mut Vec::from(e2));
-            let e1_token = vocab.iter().find(|(_, &v)| &v == &e1).unwrap().0;
-            let e2_token = vocab.iter().find(|(_, &v)| &v == &e2).unwrap().0;
-            let merged_token = vocab.iter().find(|(_, &v)| &v == &merged).unwrap().0;
+            let e1_token = vocab.iter().find(|(_, &v)| v == e1).unwrap().0;
+            let e2_token = vocab.iter().find(|(_, &v)| v == e2).unwrap().0;
+            let merged_token = vocab.iter().find(|(_, &v)| v == merged).unwrap().0;
             ((*e1_token, *e2_token), *merged_token)
         })
         .collect();
-        println!("{:?}", merges);
+        println!("{merges:?}");
 
         //let special_tokens = HashMap::new();
 
