@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from dataclasses import dataclass
 from collections import Counter, defaultdict
+import typer
 
 from rustsrc import train_bpe, RustTokenizer
 
@@ -95,7 +96,7 @@ def train_on_dataset(dataset_name: Literal['owt', 'tinystories']):
 def train_on_dataset_hf(dataset_name: Literal['owt', 'tinystories']):
     assert dataset_name in ['owt', 'tinystories']
     in_path = Path(DATASET_PATHS[dataset_name])
-    from tokenizers import 
+    # from tokenizers import 
     tokenizer = Tokenizer.train_from_file(in_path=in_path,
                                           vocab_size=10_000 if dataset_name == 'tinystories' else 32_000,
                                           special_tokens=['<|endoftext|>'])
@@ -127,6 +128,7 @@ def sample_and_compress(dataset: Literal['owt', 'tinystories'], with_tokenizer_f
     first_10_lines = next(iter(re.finditer(r"([\s\S]*?<\|endoftext\|>){10}", text))).group(0)
     before_len = len(first_10_lines.encode('utf-8', errors='replace'))
     tokens = tokenizer.encode(first_10_lines, as_list=False)
+    assert isinstance(tokens, np.ndarray)
     after_len = tokens.nbytes
     compression_ratio = before_len / after_len
     print(f'Compression ratio for {dataset}: {compression_ratio}')
@@ -167,12 +169,22 @@ def test_training():
     print(tokenizer.merges)
 
 
+
+def main(dataset_name: str):
+    assert dataset_name in ['owt', 'tinystories']
+    train_on_dataset(dataset_name)
+
+
+def cli():
+    typer.run(main)
+
+
 if __name__ == '__main__':
     # test_training()
     # train_on_dataset('tinystories')
-    # train_on_dataset('owt')
+    train_on_dataset('owt')
 
-    train_on_dataset_hf('tinystories')
+    # train_on_dataset_hf('tinystories')
 
     # sample_and_compress('tinystories', 'tinystories')
     # sample_and_compress('owt', 'owt')
