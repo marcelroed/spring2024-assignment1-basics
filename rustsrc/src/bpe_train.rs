@@ -3,10 +3,7 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use priority_queue::PriorityQueue;
 use rayon::prelude::*;
-use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    ops::Range,
-};
+use std::collections::{BTreeSet, HashMap};
 
 use crate::pretokenize::pretokenize_par;
 
@@ -145,8 +142,6 @@ pub fn train_bpe(
     vocab_size: usize,
     special_tokens: Vec<String>,
 ) -> BPEResult {
-    let n_threads = rayon::current_num_threads();
-
     let counts = pretokenize_par(in_string.as_bytes());
 
     // println!("Gathering to a single vector");

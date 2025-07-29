@@ -506,9 +506,9 @@ mod test {
         // eprintln!("Pretokenized counts: {:?}", pretokenized_counts);
         // Print counts sorted by frequency
         let mut sorted_counts: Vec<_> = pretokenized_counts.iter().collect();
-        sorted_counts.sort_by_key(|(_, &v)| v);
+        sorted_counts.sort_by_key(|&(_, &v)| v);
         sorted_counts.reverse();
-        for (&token, &count) in sorted_counts.iter().take(100) {
+        for &(&token, &count) in sorted_counts.iter().take(100) {
             eprintln!("{1}: {0}", String::from_utf8_lossy(token), count);
         }
     }

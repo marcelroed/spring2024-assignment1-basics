@@ -89,9 +89,9 @@ mod tests {
         .map(|(e1, e2)| {
             let mut merged = Vec::from(e1);
             merged.append(&mut Vec::from(e2));
-            let e1_token = vocab.iter().find(|(_, &v)| v == e1).unwrap().0;
-            let e2_token = vocab.iter().find(|(_, &v)| v == e2).unwrap().0;
-            let merged_token = vocab.iter().find(|(_, &v)| v == merged).unwrap().0;
+            let e1_token = vocab.iter().find(|&(_, &v)| v == e1).unwrap().0;
+            let e2_token = vocab.iter().find(|&(_, &v)| v == e2).unwrap().0;
+            let merged_token = vocab.iter().find(|&(_, &v)| v == merged).unwrap().0;
             ((*e1_token, *e2_token), *merged_token)
         })
         .collect();

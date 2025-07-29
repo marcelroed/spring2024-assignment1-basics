@@ -1,7 +1,7 @@
 [package]
 name = "rustsrc"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
@@ -24,7 +24,7 @@ numpy = "0.25.0"
 onig = "6.5.1"
 # pcre2 = "0.2.7"
 priority-queue = "2.0.2"
-pyo3 = {version = "0.25.1", features = ["extension-module"]}
+pyo3 = {version = "0.25.1", features = []}
 rayon = "1.10.0"
 regex = "1.10.4"
 unicode-properties = "0.1.3"
