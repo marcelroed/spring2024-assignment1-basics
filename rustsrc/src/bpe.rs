@@ -2,6 +2,7 @@ use itertools::Itertools;
 use onig::Regex;
 use std::collections::HashMap;
 
+
 pub fn encode(
     re: &Regex,                        // Regex to pre-tokenize
     vocab_inv_bytes: &[Option<u16>],   // Mapping from byte to token for initial vocab

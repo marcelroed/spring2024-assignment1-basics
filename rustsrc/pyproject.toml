@@ -13,3 +13,7 @@ classifiers = [
 dynamic = ["version"]
 [tool.maturin]
 features = ["pyo3/extension-module"]
+
+[tool.uv]
+cache-keys = [{file = "pyproject.toml"}, {file = "Cargo.toml"}, {file = ".cargo/config.toml"}, {file = "rust-toolchain.toml"}, {file = "**/*.rs"}]
+

@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::cmp::min;
@@ -256,7 +255,7 @@ fn find_boundaries(bytes: &[u8]) -> Vec<usize> {
     boundaries
 }
 
-pub fn pretokenize_par(bytes: &[u8]) -> HashMap<&[u8], usize> {
+pub fn pretokenize_par(bytes: &[u8]) -> HashMap<&[u8], usize, rustc_hash::FxBuildHasher> {
     let start_time = std::time::Instant::now();
     let boundaries = find_boundaries(bytes);
     let merged_counts = boundaries
@@ -267,7 +266,7 @@ pub fn pretokenize_par(bytes: &[u8]) -> HashMap<&[u8], usize> {
             pretokenize(&bytes[start..end])
         })
         .reduce(
-            HashMap::new,
+            || HashMap::with_hasher(rustc_hash::FxBuildHasher{}),
             |mut acc, counts| {
                 for (k, v) in counts {
                     *acc.entry(k).or_insert(0) += v;
@@ -284,8 +283,14 @@ pub fn pretokenize_par(bytes: &[u8]) -> HashMap<&[u8], usize> {
 
 
 /// Return counts of all pretokens.
-pub fn pretokenize(bytes: &[u8]) -> HashMap<&[u8], usize> {
-    pretokenize_as_iter(bytes).counts()
+pub fn pretokenize(bytes: &[u8]) -> HashMap<&[u8], usize, rustc_hash::FxBuildHasher> {
+    let iter = pretokenize_as_iter(bytes);
+    let mut hashmap = HashMap::with_hasher(rustc_hash::FxBuildHasher{});
+    iter.for_each(|token| {
+        hashmap.entry(token).and_modify(|e| *e += 1).or_insert(1);
+    });
+    hashmap
+    // pretokenize_as_iter(bytes).counts()
 }
 
 pub struct PretokenizerIter<'a> {
@@ -357,7 +362,6 @@ impl<'a> Iterator for PretokenizerIter<'a> {
                     Ok(WhitespaceResult::Whitespace(wslen)) => PretokenizerState::Whitespace(wslen),
                     Ok(WhitespaceResult::Neither) => {
                         let saved_token = &self.iter.bytes[self.starting..self.iter.pos - 1];
-                        // save_token(&mut pretokens, &self.iter.bytes[self.starting..self.iter.pos - 1]);
                         if saved_token.is_empty() {
                             self.starting = self.iter.pos - 1;
                             PretokenizerState::Start
@@ -425,6 +429,19 @@ mod test {
     use std::fs;
 
     use super::*;
+
+        #[test]
+    fn test_pretokenizer_ts_timing() {
+        let file_bytes = fs::read(
+            "/home/marcel/projects/spring2024-assignment1-basics/data/TinyStoriesV2-GPT4-train.txt",
+        )
+        .unwrap();
+
+        let pretokenized_counts = pretokenize(&file_bytes);
+        eprintln!("Pretokenized {} tokens", pretokenized_counts.len());
+        // eprintln!("Pretokenized counts: {:?}", pretokenized_counts);
+        // Print counts sorted by frequency
+    }
 
     #[test]
     fn test_pretokenizer_matches_regex() {

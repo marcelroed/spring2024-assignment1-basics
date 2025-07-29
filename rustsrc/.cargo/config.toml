@@ -1,3 +1,23 @@
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+    # "-C", "opt-level=3",
+    # "-C", "debug-assertions=no",
+    "-C", "codegen-units=1",
+    # "-C", "target-cpu=native",
+    # "-C", "lto=fat",
+]
+
+[profile.profiling]
+inherits = "release"
+debug = true
+# rustflags = [
+#     "-C", "opt-level=3",
+#     "-C", "debug-assertions=no",
+#     "-C", "codegen-units=1",
+#     "-C", "target-cpu=native",
+#     "-C", "lto=fat",
+# ]
+
 [target.aarch64-apple-darwin]
 rustflags = [
     "-C", "link-arg=-undefined",

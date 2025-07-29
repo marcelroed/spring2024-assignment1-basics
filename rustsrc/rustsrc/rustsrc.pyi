@@ -15,5 +15,15 @@ class RustTokenizer:
         ...
 
 
+class PretokenizerIterator:
+    def __init__(self, text: bytes):
+        ...
+
+    def __iter__(self):
+        ...
+
+    def __next__(self) -> bytes:
+        ...
+
 
 def pretokenize(text: bytes) -> PretokenizerIterator:
