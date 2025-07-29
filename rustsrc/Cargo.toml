@@ -24,7 +24,7 @@ numpy = "0.25.0"
 onig = "6.5.1"
 # pcre2 = "0.2.7"
 priority-queue = "2.0.2"
-pyo3 = {version = "0.25.1", features = ["extension-module", "nightly"]}
+pyo3 = {version = "0.25.1", features = ["extension-module"]}
 rayon = "1.10.0"
 regex = "1.10.4"
 unicode-properties = "0.1.3"
