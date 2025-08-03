@@ -3,7 +3,7 @@ rustflags = [
     # "-C", "opt-level=3",
     # "-C", "debug-assertions=no",
     "-C", "codegen-units=1",
-    # "-C", "target-cpu=native",
+    "-C", "target-cpu=native",
     # "-C", "lto=fat",
 ]
 

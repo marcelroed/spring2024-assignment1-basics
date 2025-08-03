@@ -52,15 +52,8 @@ impl<'a> UTF8Iterator<'a> {
         UTF8Iterator { bytes, pos: self.pos }
     }
 
-    // fn next_codepoint(&mut self) -> Option<char> {
-    //     let cp = unsafe { str::from_utf8_unchecked(&self.bytes[self.pos..]) }
-    //         .chars()
-    //         .next()?;
-    //     self.pos += cp.len_utf8();
-    //     Some(cp)
-    // }
-
     /// Returns the next codepoint as a char (u32) and its length in bytes.
+    /// We need the length to rewind if it needs to be reprocessed.
     fn next_codepoint_and_length(&mut self) -> Option<(char, usize)> {
         let cp = unsafe { str::from_utf8_unchecked(&self.bytes[self.pos..]) }
             .chars()
